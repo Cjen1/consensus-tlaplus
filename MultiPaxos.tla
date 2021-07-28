@@ -13,12 +13,12 @@ vars == <<msgs, maxBal, maxVBal, maxVal>>
 
 Send(m) == msgs' = msgs \cup {m}
 
-None == CHOOSE v : v \notin Values
+Any == CHOOSE v : v \notin Values
 
 Init == /\ msgs = {}
         /\ maxVBal = [a \in Acceptors |-> -1]
         /\ maxBal = [a \in Acceptors |-> -1]
-        /\ maxVal = [a \in Acceptors |-> None]
+        /\ maxVal = [a \in Acceptors |-> Any]
 
 Phase1a(b) == 
   /\ ~ \E m \in msgs : (m.type = "1a") /\ (m.bal = b)
@@ -35,15 +35,30 @@ Phase1b(a) ==
     /\ UNCHANGED <<maxVBal, maxVal>>
 
 
+\* v1 <= v2
+Refines(v1, v2) ==
+  \/ v2 = v1
+  \/ v1 = Any
+
+
 ValueSelect(v, b) ==
   \E Q \in Quorums:
     \E S \in SUBSET {m \in msgs : (m.type = "1b") /\ (m.bal = b)} :
       /\ \A a \in Q : \E m \in S : m.acc = a
-      /\ \/ \A m \in S : m.maxVBal = -1
-         \/ \E c \in 0..(b-1) :
+      \* S is a set of 1b messages from a quorum of acceptors
+      /\ \E c \in 0..(b-1) :
+            \* fix c as the maximum ballot number
             /\ \A m \in S : m.maxVBal =< c
-            /\ \E m \in S : /\ m.maxVBal = c
-                            /\ m.maxVal = v
+            \* Find a m which has ballot c and the 'largest' value
+            /\ \E m \in S : 
+                  /\ m.maxVBal = c
+                  \* All other messages which have maxVBal = c have leq values
+                  /\ \A m1 \in S:
+                        /\ m1.maxVBal = c
+                        /\ Refines(m1.maxVal, m.maxVal)
+                  \* Set v to that value
+                  /\ v = m.maxVal
+
 
 Phase2a(b) ==
   /\ ~ \E m \in msgs : (m.type = "2a") /\ (m.bal = b)
@@ -82,16 +97,16 @@ Consistency == \A v1, v2 \in Values : Chosen(v1) /\ Chosen(v2) => (v1 = v2)
 
 Messages ==      [type : {"1a"}, bal : Ballots]
             \cup [type : {"1b"}, bal : Ballots, maxVBal : Ballots \cup {-1},
-                    maxVal : Values \cup {None}, acc : Acceptors]
+                    maxVal : Values \cup {Any}, acc : Acceptors]
             \cup [type : {"2a"}, bal : Ballots, val : Values]
             \cup [type : {"2b"}, bal : Ballots, val : Values, acc : Acceptors]
 
 TypeOk == /\ msgs \in SUBSET Messages
           /\ maxVBal \in [Acceptors -> Ballots \cup {-1}]
           /\ maxBal \in [Acceptors -> Ballots \cup {-1}]
-          /\ maxVal \in [Acceptors -> Values \cup {None}]
+          /\ maxVal \in [Acceptors -> Values \cup {Any}]
           /\ \A a \in Acceptors : maxBal[a] >= maxVBal[a]
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Jul 28 15:21:40 BST 2021 by cjen1
+\* Last modified Wed Jul 28 15:45:25 BST 2021 by cjen1
