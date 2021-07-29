@@ -4,12 +4,28 @@ EXTENDS Integers, Sequences
 
 CONSTANTS Ballots, Acceptors, Values, Quorums
 
-VARIABLES msgs,
+VARIABLES   msgs,
             maxBal,
             maxVBal,
             maxVal
 
+PossibleValues == Seq(Values)
+
+Messages ==      [type : {"1a"}, bal : Ballots]
+            \cup [type : {"1b"}, bal : Ballots, maxVBal : Ballots \cup {-1},
+                    maxVal : PossibleValues, acc : Acceptors]
+            \cup [type : {"2a"}, bal : Ballots, val : PossibleValues]
+            \cup [type : {"2b"}, bal : Ballots, val : PossibleValues, acc : Acceptors]
+
+TypeInvariant == /\ msgs \in SUBSET Messages
+                 /\ maxVBal \in [Acceptors -> Ballots \cup {-1}]
+                 /\ maxBal \in [Acceptors -> Ballots \cup {-1}]
+                 /\ maxVal \in [Acceptors -> PossibleValues]
+                 /\ \A a \in Acceptors : maxBal[a] >= maxVBal[a]
+
 vars == <<msgs, maxBal, maxVBal, maxVal>>
+
+-----------------------------------------------------------------------------
 
 Send(m) == msgs' = msgs \cup {m}
 
@@ -18,7 +34,7 @@ None == CHOOSE v : v \notin Values
 Init == /\ msgs = {}
         /\ maxVBal = [a \in Acceptors |-> -1]
         /\ maxBal = [a \in Acceptors |-> -1]
-        /\ maxVal = [a \in Acceptors |-> None]
+        /\ maxVal = [a \in Acceptors |-> Seq({})]
 
 Phase1a(b) == 
   /\ ~ \E m \in msgs : (m.type = "1a") /\ (m.bal = b)
@@ -35,45 +51,38 @@ Phase1b(a) ==
     /\ maxBal' = [maxBal EXCEPT ![a] = m.bal]
     /\ UNCHANGED <<maxVBal, maxVal>>
 
+\* a \subseteq b
+Prefix(a,b) ==
+  /\ Len(a) =< Len(b)
+  /\ \A i \in DOMAIN a: a[i] = b[i]
 
-\* v1 <= v2
-Refines(v1, v2) ==
-  \/ v1 = v2
-  \/ v1 < v2
-  \/ v1 = None
-
-
-CanSelect(v, b) ==
-  \E Q \in Quorums:
-    \E S \in SUBSET {m \in msgs : (m.type = "1b") /\ (m.bal = b)} :
-      /\ \A a \in Q : \E m \in S : m.acc = a
-      \* S is a set of 1b messages from a quorum of acceptors
-      /\ \E c \in 0..(b-1) :
-            \* fix c as the maximum ballot number of received ballots in S
-            /\ \A m \in S : m.maxVBal =< c
-            \* Find a m which has ballot c and the 'largest' value
-            /\ \A m \in S :
-                  \/ m.maxVBal # c
-                  \/ /\ m.maxVBal = c
-                     /\ Refines(m.maxVal, v)
-\*            /\ \E m \in S : 
-\*                  /\ m.maxVBal = c
-\*                  \* All other messages which have maxVBal = c have leq values
-\*                  /\ \A m1 \in S:
-\*                        /\ m1.maxVBal = c
-\*                        /\ Refines(m1.maxVal, m.maxVal)
-\*                  \* v must refine that value
-\*                  /\ Refines(m.maxVal, v)
-
+ValueSelect(b) ==
+  CHOOSE v :
+    \E Q \in Quorums:
+      \E S \in SUBSET {m \in msgs : (m.type = "1b") /\ (m.bal = b)} :
+        /\ \A a \in Q : \E m \in S : m.acc = a
+        \* S is a set of 1b messages from a quorum of acceptors
+	/\ LET c == CHOOSE c \in 0..(b-1) : \A m \in S: m.maxVBal =< c 
+	   IN 
+	   \* Find a message which is from the highest maxVBal
+	   \E m \in S :
+	         /\ m.maxVBal = c
+	         \* and forall m1 in S. m1.maxValue is a prefix of m.maxValue
+		 /\ \A m1 \in S :
+		       \/ m1.maxVBal \= c
+		       \/ /\ m1.maxVBal = c
+		          /\ Prefix(m1.maxValue, m.maxValue)
+	 	 \* Thus v = m.maxValue
+	         /\ v = m.maxValue
 
 Phase2a(b) ==
-  /\ ~ \E m \in msgs : (m.type = "2a") /\ (m.bal = b)
-  /\ \E v \in Values :
-    /\ CanSelect(v, b)
-    /\ Send([type |-> "2a", bal |-> b, val |-> v])
+  /\ LET prefix == ValueSelect(b)
+     IN \E v \in Values :
+           /\ ~ \E v1 \in prefix: v = v1
+	   /\ LET val == prefix \o <<v>>
+	      IN /\ ~ \E m \in msgs : (m.type = "2a") /\ (m.bal = b) /\ (m.val = val)
+                 /\ Send([type |-> "2a", bal |-> b, val |-> val])
   /\ UNCHANGED <<maxBal, maxVBal, maxVal>>
-  
-
 
 Phase2b(a) ==
   \E m \in msgs :
@@ -90,7 +99,7 @@ Next == \/ \E b \in Ballots   : Phase1a(b) \/ Phase2a(b)
 Spec == Init /\ [][Next]_vars
 
 VotedForIn(a, v, b) == \E m \in msgs : /\ m.type = "2b"
-                                       /\ m.val = v
+                                       /\ Prefix(v, m.val)
                                        /\ m.bal = b
                                        /\ m.acc = a
 
@@ -99,20 +108,10 @@ ChosenIn(v, b) == \E Q \in Quorums :
 
 Chosen(v) == \E b \in Ballots : ChosenIn(v, b)
 
-Consistency == \A v1, v2 \in Values : Chosen(v1) /\ Chosen(v2) => Refines(v1, v2) \/ Refines(v2, v1)
-
-Messages ==      [type : {"1a"}, bal : Ballots]
-            \cup [type : {"1b"}, bal : Ballots, maxVBal : Ballots \cup {-1},
-                    maxVal : Values \cup {None}, acc : Acceptors]
-            \cup [type : {"2a"}, bal : Ballots, val : Values]
-            \cup [type : {"2b"}, bal : Ballots, val : Values, acc : Acceptors]
-
-TypeOk == /\ msgs \in SUBSET Messages
-          /\ maxVBal \in [Acceptors -> Ballots \cup {-1}]
-          /\ maxBal \in [Acceptors -> Ballots \cup {-1}]
-          /\ maxVal \in [Acceptors -> Values \cup {None}]
-          /\ \A a \in Acceptors : maxBal[a] >= maxVBal[a]
+Consistency == \A b1, b2 \in Ballots : 
+		  /\ b1 =< b2
+		  /\ \A v1, v2 \in PossibleValues : ChosenIn(b1, v1) /\ ChosenIn(b2, v2) => Prefix(v1, v2)
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Jul 28 17:20:32 BST 2021 by cjen1
+\* Last modified Wed Jul 28 18:26:38 BST 2021 by cjen1
