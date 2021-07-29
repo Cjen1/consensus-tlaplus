@@ -1,6 +1,6 @@
 ----------------------------- MODULE MultiPaxos -----------------------------
 
-EXTENDS Integers, Sequences
+EXTENDS TLC, Integers, Sequences
 
 CONSTANTS Ballots, Acceptors, Values, Quorums
 
@@ -9,7 +9,30 @@ VARIABLES   msgs,
             maxVBal,
             maxVal
 
-PossibleValues == Seq(Values)
+Identity(v) == v
+
+\* The set of all possible insertions of x into s
+Insert(x, s) == 
+  LET insert(i,j) == CASE j < i -> s[j]
+  		       [] j = i -> x
+        	       [] j > i -> s[j-1]
+  IN
+  LET CreateSeq(i) == [j \in 1..(Len(s) + 1) |-> insert(i,j)]
+      SearchSpace == DOMAIN s \cup {Len(s) + 1}
+  IN {CreateSeq(i) :i \in SearchSpace}
+
+RECURSIVE AllSeqFromSet(_)
+AllSeqFromSet(S) ==
+  IF S = {} THEN {<< >>}
+  ELSE 
+  LET _op(x) == 
+    LET acc == AllSeqFromSet(S \ {x})
+        ins == UNION {Insert(x, s): s \in acc}
+    IN acc \union ins
+  IN
+  UNION { _op(x): x \in S}
+
+PossibleValues == AllSeqFromSet(Values)
 
 Messages ==      [type : {"1a"}, bal : Ballots]
             \cup [type : {"1b"}, bal : Ballots, maxVBal : Ballots \cup {-1},
@@ -27,14 +50,12 @@ vars == <<msgs, maxBal, maxVBal, maxVal>>
 
 -----------------------------------------------------------------------------
 
-Send(m) == msgs' = msgs \cup {m}
-
-None == CHOOSE v : v \notin Values
-
 Init == /\ msgs = {}
         /\ maxVBal = [a \in Acceptors |-> -1]
         /\ maxBal = [a \in Acceptors |-> -1]
-        /\ maxVal = [a \in Acceptors |-> Seq({})]
+        /\ maxVal = [a \in Acceptors |-> << >>]
+
+Send(m) == msgs' = msgs \cup {m}
 
 Phase1a(b) == 
   /\ ~ \E m \in msgs : (m.type = "1a") /\ (m.bal = b)
@@ -57,7 +78,7 @@ Prefix(a,b) ==
   /\ \A i \in DOMAIN a: a[i] = b[i]
 
 ValueSelect(b) ==
-  CHOOSE v :
+  CHOOSE v \in PossibleValues:
     \E Q \in Quorums:
       \E S \in SUBSET {m \in msgs : (m.type = "1b") /\ (m.bal = b)} :
         /\ \A a \in Q : \E m \in S : m.acc = a
@@ -69,7 +90,7 @@ ValueSelect(b) ==
 	         /\ m.maxVBal = c
 	         \* and forall m1 in S. m1.maxValue is a prefix of m.maxValue
 		 /\ \A m1 \in S :
-		       \/ m1.maxVBal \= c
+		       \/ m1.maxVBal # c
 		       \/ /\ m1.maxVBal = c
 		          /\ Prefix(m1.maxValue, m.maxValue)
 	 	 \* Thus v = m.maxValue
@@ -102,15 +123,14 @@ VotedForIn(a, v, b) == \E m \in msgs : /\ m.type = "2b"
                                        /\ Prefix(v, m.val)
                                        /\ m.bal = b
                                        /\ m.acc = a
+				       /\ Print(<<"VotedForIn", a, v, b, m>>, TRUE)
 
 ChosenIn(v, b) == \E Q \in Quorums :
                         \A a \in Q : VotedForIn(a, v, b)
 
-Chosen(v) == \E b \in Ballots : ChosenIn(v, b)
-
 Consistency == \A b1, b2 \in Ballots : 
-		  /\ b1 =< b2
-		  /\ \A v1, v2 \in PossibleValues : ChosenIn(b1, v1) /\ ChosenIn(b2, v2) => Prefix(v1, v2)
+		  b1 =< b2 => \A v1, v2 \in PossibleValues : 
+		      (ChosenIn(b1, v1) /\ ChosenIn(b2, v2)) => Prefix(v1, v2)
 
 =============================================================================
 \* Modification History
