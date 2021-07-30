@@ -132,5 +132,3 @@ Consistency ==
                       (ChosenIn(b1, v1) /\ ChosenIn(b2, v2)) => Prefix(v1, v2)
 
 =============================================================================
-\* Modification History
-\* Last modified Wed Jul 28 18:26:38 BST 2021 by cjen1
