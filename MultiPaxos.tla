@@ -1,6 +1,6 @@
 ----------------------------- MODULE MultiPaxos -----------------------------
 
-EXTENDS TLC, Integers, Sequences
+EXTENDS TLC, Integers, Sequences, FiniteSets
 
 CONSTANTS Ballots, Acceptors, Values, Quorums
 
@@ -10,31 +10,18 @@ VARIABLES   msgs,
             maxVal,
             propVal
 
-\* a \subseteq b
+\* a =< b
 Prefix(a,b) ==
   /\ Len(a) =< Len(b)
   /\ \A i \in DOMAIN a: a[i] = b[i]
 
-\* The set of all possible insertions of x into s
-Insert(x, s) == 
-  LET insert(i,j) == CASE j < i -> s[j]
-                       [] j = i -> x
-                       [] j > i -> s[j-1]
-  IN
-  LET CreateSeq(i) == [j \in 1..(Len(s) + 1) |-> insert(i,j)]
-      SearchSpace == DOMAIN s \cup {Len(s) + 1}
-  IN {CreateSeq(i) :i \in SearchSpace}
+Range(s) == {s[i] : i \in DOMAIN s}
 
-RECURSIVE AllSeqFromSet(_)
 AllSeqFromSet(S) ==
-  IF S = {} THEN {<< >>}
-  ELSE 
-  LET _op(x) == 
-    LET acc == AllSeqFromSet(S \ {x})
-        ins == UNION {Insert(x, s): s \in acc}
-    IN acc \union ins
+  LET unique(f) == \A i,j \in DOMAIN f: i /= j => f[i] /= f[j]
+      subseq(c) == {seq \in [1..c -> S]: unique(seq)}
   IN
-  UNION { _op(x): x \in S}
+  UNION {subseq(c): c \in 0..Cardinality(S)}
 
 PossibleValues == AllSeqFromSet(Values)
 
@@ -77,34 +64,47 @@ Phase1b(a) ==
     /\ maxBal' = [maxBal EXCEPT ![a] = m.bal]
     /\ UNCHANGED <<maxVBal, maxVal, propVal>>
 
-QuorumExists(s, b) ==
+QuorumExists(s, b, type) ==
   \E Q \in Quorums:
-    \A a \in Q : \E m \in s : (m.type = "1b") /\ m.acc = a /\ (m.bal = b)
+    \A a \in Q : \E m \in s : (m.type = type) /\ m.acc = a /\ (m.bal = b)
 
 ValueSelect(b) ==
-  LET S == CHOOSE s \in SUBSET {m \in msgs : (m.type = "1b") /\ (m.bal = b)} : QuorumExists(s, b)
-      c == (CHOOSE mc \in S : \A m \in S: m.maxVBal =< mc.maxVBal).maxVBal
-      r == {m \in S: m.maxVBal = c}
+  LET s == CHOOSE s \in SUBSET {m \in msgs : (m.type = "1b") /\ (m.bal = b)} : QuorumExists(s, b, "1b")
+      c == (CHOOSE mc \in s : \A m \in s: m.maxVBal =< mc.maxVBal).maxVBal
+      r == {m \in s: m.maxVBal = c}
       m == CHOOSE m \in r : ~\E m1 \in r : ~Prefix(m1.maxVal, m.maxVal)
   IN m.maxVal
 
+Send2a(b, msg) ==
+  /\ ~ \E m \in msgs : m = msg
+  /\ Prefix(propVal[b], msg.val)
+  /\ propVal' = [propVal EXCEPT ![b] = msg.val]
+  /\ Send(msg)
+
+ProposeNewValue(b, prefix) == 
+  /\ \E v \in Values : ~ v \in Range(prefix)
+  /\ LET v == CHOOSE v \in Values : ~ v \in Range(prefix)
+         val == prefix \o <<v>>
+         msg == [type |-> "2a", bal |-> b, val |-> val]
+     IN Send2a(b, msg)
+
+ProposePrefix(b, val) ==
+  Send2a(b, [type |-> "2a", bal |-> b, val |-> val]) 
+
 Phase2a(b) ==
-  /\ QuorumExists(msgs, b)
-  /\ LET prefix == ValueSelect(b)
-     IN \E v \in Values :
-           /\ ~ \E iv1 \in DOMAIN prefix: v = prefix[iv1]
-           /\ LET val == prefix \o <<v>>
-              IN /\ Prefix(propVal[b], val)
-                 /\ ~ \E m \in msgs : (m.type = "2a") /\ (m.bal = b) /\ (m.val = val)
-                 \* Requires a strong proposer
-                 /\ propVal' = [propVal EXCEPT ![b] = val]
-                 /\ Send([type |-> "2a", bal |-> b, val |-> val])
+  /\ QuorumExists(msgs, b, "1b")
+  /\ LET prefix1a == ValueSelect(b)
+         prefixProp == propVal[b]
+         prefix == IF Prefix(prefix1a, prefixProp) THEN prefixProp ELSE prefix1a
+     IN \/ ProposeNewValue(b, prefix)
+        \/ ProposePrefix(b, prefix)
   /\ UNCHANGED <<maxBal, maxVBal, maxVal>>
 
 Phase2b(a) ==
   \E m \in msgs :
     /\ m.type = "2a"
     /\ m.bal >= maxBal[a]
+    /\ Prefix(maxVal[a], m.val)
     /\ Send([type |-> "2b", bal |-> m.bal, val |-> m.val, acc |-> a])
     /\ maxVBal' = [maxVBal EXCEPT ![a] = m.bal]
     /\ maxBal'  = [maxBal EXCEPT ![a] = m.bal]
@@ -116,19 +116,23 @@ Next == \/ \E b \in Ballots   : Phase1a(b) \/ Phase2a(b)
 
 Spec == Init /\ [][Next]_vars
 
-VotedForIn(a, v, b) == 
-    \E m \in msgs : /\ m.type = "2b"
-                    /\ m.bal = b
-                    /\ m.acc = a
-                    /\ m.val = v
+\* A prefix is committed if a p2 quorum exists of responses where it is a prefix
+\* Thus this is the set of values which could be committed within a ballot number
+\*   Hence we form the set of possible quorums
+\*   And find the largest prefix they could be used to commit (ie the smallest value in those messages)
+ValueCommits(b) ==
+  LET qms == LET ms == SUBSET {m \in msgs : (m.type = "2b") /\ (m.bal = b)}
+             IN {s \in ms: QuorumExists(s, b, "2b")}
+      minV(q) == LET vs == {m.val : m \in q} IN CHOOSE v \in vs: \A v1 \in vs: Prefix(v, v1)
+  IN {minV(q): q \in qms}
 
-ChosenIn(b, v) == \E Q \in Quorums :
-                        \A a \in Q : 
-                          /\ VotedForIn(a, v, b)
-
-Consistency == 
+\* Consistency is satisified if for all values that could be committed in a ballot,
+\*   for each subsequent ballot, every value they could commit has the first value as a prefix
+\* i.e. if you commit a list, it will be a prefix of all other committed lists
+Consistency ==
   \A b1, b2 \in Ballots : 
-                  b1 < b2 => \A v1, v2 \in PossibleValues : 
-                      (ChosenIn(b1, v1) /\ ChosenIn(b2, v2)) => Prefix(v1, v2)
+    b1 < b2 => \A v1 \in ValueCommits(b1): 
+               \A v2 \in ValueCommits(b2):
+          	         Prefix(v1, v2)
 
 =============================================================================
