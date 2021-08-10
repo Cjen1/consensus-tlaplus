@@ -1,4 +1,4 @@
-name: "Test"
+name: "Model check"
 on:
   pull_request:
   push:
@@ -15,4 +15,4 @@ jobs:
       with:
         packages: tlaplus
         script: |
-          tlc2 MC.tla
+          make test

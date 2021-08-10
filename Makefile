@@ -1,4 +1,7 @@
 
 .PHONY: test
-test: MultiPaxos.tla
-	tlc2 MC.tla
+test: multipaxos
+
+.PHONY: multipaxos
+multipaxos:
+	tlc2 MultiPaxos/MC.tla
