@@ -3,7 +3,7 @@ EXTENDS MultiPaxos, TLC
 
 \* MV CONSTANT declarations@modelParameterConstants
 CONSTANTS
-v1, v2
+v1, v2, v3
 ----
 
 \* MV CONSTANT declarations@modelParameterConstants
@@ -28,7 +28,7 @@ Permutations(const_16285966784012000) \union Permutations(const_1628596678401300
 
 \* CONSTANT definitions @modelParameterConstants:0Ballots
 const_16285966784015000 == 
-{1,2}
+{1,2,3,4}
 ----
 
 \* CONSTANT definitions @modelParameterConstants:1Quorums
