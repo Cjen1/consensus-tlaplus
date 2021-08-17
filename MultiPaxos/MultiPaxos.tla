@@ -5,9 +5,9 @@ EXTENDS TLC, Integers, Sequences, FiniteSets
 CONSTANTS Ballots, Acceptors, Values, Quorums
 
 VARIABLES   msgs,
-            maxBal,
-            maxVBal,
-            maxVal
+            acc,
+	    prop,
+	    commits
 
 \* a =< b
 Prefix(a,b) ==
@@ -15,6 +15,12 @@ Prefix(a,b) ==
   /\ \A i \in DOMAIN a: a[i] = b[i]
 
 Range(s) == {s[i] : i \in DOMAIN s}
+
+Max(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v1, v)
+Min(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v, v1)
+
+proper_subset(a,b) == /\ a \subseteq b
+               /\ \E v \in b: ~v \in a
 
 AllSeqFromSet(S) ==
   LET unique(f) == \A i,j \in DOMAIN f: i /= j => f[i] /= f[j]
@@ -25,96 +31,137 @@ AllSeqFromSet(S) ==
 PossibleValues == AllSeqFromSet(Values)
 
 Messages ==      [type : {"1a"}, bal : Ballots]
-            \cup [type : {"1b"}, bal : Ballots, maxVBal : Ballots \cup {-1},
-                    maxVal : PossibleValues, acc : Acceptors]
-            \cup [type : {"2a"}, bal : Ballots, val : PossibleValues]
-            \cup [type : {"2b"}, bal : Ballots, val : PossibleValues, acc : Acceptors]
+            \cup [type : {"1b"}, bal : Ballots, 
+	            maxVBal : Ballots \cup {-1}, maxVal : PossibleValues, maxPC : Nat,
+		    acc : Acceptors]
+            \cup [type : {"2a"}, bal : Ballots, val : PossibleValues, pc : Nat]
+            \cup [type : {"2b"}, bal : Ballots, val : PossibleValues, acc : Acceptors, pc : Nat]
+
+ProposerState == [val : PossibleValues, counter : Nat]
+
+AcceptorState == [maxBal : Ballots \cup {-1},
+                  maxVBal: Ballots \cup {-1},
+		  maxVal : PossibleValues,
+		  maxPC : Nat]
 
 TypeInvariant == /\ msgs \in SUBSET Messages
-                 /\ maxVBal \in [Acceptors -> Ballots \cup {-1}]
-                 /\ maxBal \in [Acceptors -> Ballots \cup {-1}]
-                 /\ maxVal \in [Acceptors -> PossibleValues]
-                 /\ \A a \in Acceptors : maxBal[a] >= maxVBal[a]
+		 /\ acc \in [Acceptors -> AcceptorState]
+                 /\ \A a \in Acceptors : acc[a].maxBal >= acc[a].maxVBal
+		 /\ prop \in [Ballots -> ProposerState]
+		 /\ \A v \in Range(commits) : v \in [bal : Ballots, val : PossibleValues]
 
-vars == <<msgs, maxBal, maxVBal, maxVal>>
+vars == <<msgs, acc, prop, commits>>
 
 -----------------------------------------------------------------------------
 
 Init == /\ msgs = {}
-        /\ maxVBal = [a \in Acceptors |-> -1]
-        /\ maxBal = [a \in Acceptors |-> -1]
-        /\ maxVal = [a \in Acceptors |-> << >>]
+        /\ acc = [a \in Acceptors |-> 
+	           [maxVBal |-> -1, maxBal |-> -1, maxVal |-> << >>, maxPC |-> 0]]
+	/\ prop = [b \in Ballots |-> [val |-> << >>, counter |-> 0]]
+	/\ commits = << >>
 
 Send(m) == msgs' = msgs \cup {m}
 
 Phase1a(b) == 
-\*  /\ ~ \E m \in msgs : (m.type = "1a") /\ (m.bal = b)
   /\ Send ([type |-> "1a", bal |-> b])
-  /\ UNCHANGED <<maxVBal, maxBal, maxVal>>
+  /\ UNCHANGED << acc, prop, commits >>
 
 Phase1b(a) ==
   \E m \in msgs :
     /\ m.type = "1a"
-    /\ m.bal > maxBal[a]
-    /\ Send([type |-> "1b", bal |-> m.bal, maxVBal |-> maxVBal[a],
-                maxVal |-> maxVal[a], acc |-> a])
-    /\ maxBal' = [maxBal EXCEPT ![a] = m.bal]
-    /\ UNCHANGED <<maxVBal, maxVal>>
+    /\ m.bal > acc[a].maxBal
+    /\ Send([type |-> "1b", acc |-> a, 
+             bal |-> m.bal, maxVBal |-> acc[a].maxVBal, maxVal |-> acc[a].maxVal, maxPC |-> acc[a].maxPC])
+    /\ acc' = [acc EXCEPT ![a] = [acc[a] EXCEPT !.maxBal = m.bal]]
+    /\ UNCHANGED << prop, commits  >>
 
 QuorumExists(s, b, type) ==
   \E Q \in Quorums:
     \A a \in Q : \E m \in s : (m.type = type) /\ m.acc = a /\ (m.bal = b)
 
 ValueSelect(b) ==
-  LET s == CHOOSE s \in SUBSET {m \in msgs : (m.type = "1b") /\ (m.bal = b)} : QuorumExists(s, b, "1b")
-      c == (CHOOSE mc \in s : \A m \in s: m.maxVBal =< mc.maxVBal).maxVBal
+  LET s == {m \in msgs : (m.type = "1b") /\ (m.bal = b)}
+      sv == {m.maxVBal: m \in s}
+      c == CHOOSE c \in sv : \A v \in sv: v =< c
       r == {m \in s: m.maxVBal = c}
-      m == CHOOSE m \in r : ~\E m1 \in r : ~Prefix(m1.maxVal, m.maxVal)
+      m == CHOOSE m \in r : \A m1 \in r : m1.maxPC <= m.maxPC
   IN m.maxVal
 
 Phase2a(b) ==
   /\ QuorumExists(msgs, b, "1b")
-  /\ ~ \E m \in msgs : m.type = "2a" /\ m.bal = b
-  /\ LET prefix == ValueSelect(b)
-     IN \E vs \in AllSeqFromSet(Values \ Range(prefix)):
-        Send([type |-> "2a", bal |-> b, val |-> prefix \o vs])
-  /\ UNCHANGED <<maxBal, maxVBal, maxVal>>
+  /\ LET prefix == IF prop[b].val /= << >> THEN prop[b].val ELSE ValueSelect(b)
+         postfixOptions == {<<>>} \cup {<<v>> : v \in Values \ Range(prefix)}
+     IN \E v \in postfixOptions:
+          LET val == prefix \o v
+	      pc == prop[b].counter + 1
+	  IN 
+          /\ Send([type |-> "2a", bal |-> b, val |-> val, pc |-> pc])
+	  /\ prop' = [prop EXCEPT ![b] = [val |-> val, counter |-> pc]]
+  /\ UNCHANGED << acc, commits >>
 
 Phase2b(a) ==
-  \E m \in msgs :
-    /\ m.type = "2a"
-    /\ m.bal >= maxBal[a]
-    /\ Prefix(maxVal[a], m.val)
-    /\ Send([type |-> "2b", bal |-> m.bal, val |-> m.val, acc |-> a])
-    /\ maxVBal' = [maxVBal EXCEPT ![a] = m.bal]
-    /\ maxBal'  = [maxBal EXCEPT ![a] = m.bal]
-    /\ maxVal'  = [maxVal EXCEPT ![a] = m.val]
+  /\ \E m \in msgs :
+      /\ m.type = "2a"
+      /\ m.bal >= acc[a].maxBal
+      /\ Prefix(acc[a].maxVal, m.val)
+      /\ Send([type |-> "2b", bal |-> m.bal, val |-> m.val, acc |-> a, pc |-> m.pc])
+      /\ acc' = [acc EXCEPT ![a] = [maxBal |-> m.bal, maxVBal |-> m.bal, maxVal |-> m.val, maxPC |-> m.pc]]
+  /\ UNCHANGED << prop, commits >>
 
-Next == \/ \E b \in Ballots   : Phase1a(b) \/ Phase2a(b)
+\* Try and commit a prefix
+\*   Take the maximum pc for each acceptor, for each subset of messages which form a quorum, 
+\*   and then the largest common prefix of those msgs
+Commit(b) ==
+  /\ QuorumExists(msgs, b, "2b")
+  /\ LET ms == {m \in msgs: m.type = "2b" /\ m.bal = b}
+         LeqPC(ma,mb) == ma.pc =< mb.pc
+	 \* Just the newest message for each acceptor
+         ams == {Max(LeqPC, {m \in ms: m.acc = a}): a \in {a \in Acceptors: \E m \in ms: m.acc = a}}
+	 relevantQuorums == {q \in Quorums: \A a \in q: \E m \in ams: m.acc = a}
+	 \* Index ams on acceptors
+	 fams(a) == CHOOSE m \in ams: m.acc = a
+	 \* The messages for each quorum
+	 qams == {{fams(a): a \in q} : q \in relevantQuorums}
+	 \* The value decided in each quorum
+	 qvs == {Min(Prefix, {m.val: m \in qms}): qms \in qams}
+	 \* The largest decided value
+	 v == Max(Prefix, qvs)
+	 commit == [bal |-> b, val |-> v]
+     IN /\ ~ commit \in Range(commits)
+        /\ commits' = commits \o << commit >>
+        /\ UNCHANGED << msgs, acc, prop >>
+
+Next == \/ \E b \in Ballots   : Phase1a(b) \/ Phase2a(b) \/ Commit(b)
         \/ \E a \in Acceptors : Phase1b(a) \/ Phase2b(a)
 
 Spec == Init /\ [][Next]_vars
 
-
-(*
- * Take the longest decided value for a given ballot number
- *    By taking all possible quorums
- *    Taking the largest common prefix for each quorum (decided value)
- *    Taking the largest decided log
-*)
-DecidedValues(b) ==
-  LET ms == {m \in msgs : (m.type = "2b") /\ (m.bal = b)}
-  IN IF ~QuorumExists(ms, b, "2b")
-     THEN {}
-     ELSE {m.val : m \in ms}
-     
-\* Consistency is satisified if for all values that could be committed in a ballot,
-\*   for each subsequent ballot, every value they could commit has the first value as a prefix
-\* i.e. if you commit a list, it will be a prefix of all other committed lists
 Consistency ==
-  \A b1, b2 \in Ballots : 
-    b1 < b2 
-    => \A v1 \in DecidedValues(b1):
-       \A v2 \in DecidedValues(b2):
-       Prefix(v1, v2)
+  \A i, j \in DOMAIN(commits):
+    /\ i < j
+    /\ commits[i].bal <= commits[j].bal
+    => Prefix(commits[i].val, commits[j].val)
+
+\* (*
+\*  * Take the longest decided value for a given ballot number
+\*  *    By taking all possible quorums
+\*  *    Taking the largest common prefix for each quorum (decided value)
+\*  *    Taking the largest decided log
+\* *)
+\* DecidedValues(b) ==
+\*   LET ms == {m \in msgs : (m.type = "2b") /\ (m.bal = b)}
+\*   IN IF \/ ~QuorumExists(ms, b, "2b")
+\*         \/ ms = {}
+\*      THEN {}
+\*      ELSE {Max(Prefix, {m.val : m \in ms})}
+\*      
+\* \* Consistency is satisified if for all values that could be committed in a ballot,
+\* \*   for each subsequent ballot, every value they could commit has the first value as a prefix
+\* \* i.e. if you commit a list, it will be a prefix of all other committed lists
+\* Consistency ==
+\*   \A b1, b2 \in Ballots : 
+\*     b1 < b2
+\*     => \A v1 \in DecidedValues(b1):
+\*        \A v2 \in DecidedValues(b2):
+\*        Prefix(v1, v2)
 =============================================================================
