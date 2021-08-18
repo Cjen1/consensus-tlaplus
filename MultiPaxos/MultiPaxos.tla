@@ -19,9 +19,6 @@ Range(s) == {s[i] : i \in DOMAIN s}
 Max(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v1, v)
 Min(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v, v1)
 
-proper_subset(a,b) == /\ a \subseteq b
-               /\ \E v \in b: ~v \in a
-
 AllSeqFromSet(S) ==
   LET unique(f) == \A i,j \in DOMAIN f: i /= j => f[i] /= f[j]
       subseq(c) == {seq \in [1..c -> S]: unique(seq)}
@@ -63,6 +60,7 @@ Init == /\ msgs = {}
 Send(m) == msgs' = msgs \cup {m}
 
 Phase1a(b) == 
+  /\ ~\E m \in msgs: m.type = "1a" /\ m.bal = b
   /\ Send ([type |-> "1a", bal |-> b])
   /\ UNCHANGED << acc, prop, commits >>
 
@@ -94,8 +92,10 @@ Phase2a(b) ==
      IN \E v \in postfixOptions:
           LET val == prefix \o v
 	      pc == prop[b].counter + 1
+	      msg == [type |-> "2a", bal |-> b, val |-> val, pc |-> pc]
 	  IN 
-          /\ Send([type |-> "2a", bal |-> b, val |-> val, pc |-> pc])
+          /\ ~\E m \in msgs: m.type = "2a" /\ m.bal = b /\ m.val = val
+          /\ Send(msg)
 	  /\ prop' = [prop EXCEPT ![b] = [val |-> val, counter |-> pc]]
   /\ UNCHANGED << acc, commits >>
 
@@ -142,26 +142,4 @@ Consistency ==
     /\ commits[i].bal <= commits[j].bal
     => Prefix(commits[i].val, commits[j].val)
 
-\* (*
-\*  * Take the longest decided value for a given ballot number
-\*  *    By taking all possible quorums
-\*  *    Taking the largest common prefix for each quorum (decided value)
-\*  *    Taking the largest decided log
-\* *)
-\* DecidedValues(b) ==
-\*   LET ms == {m \in msgs : (m.type = "2b") /\ (m.bal = b)}
-\*   IN IF \/ ~QuorumExists(ms, b, "2b")
-\*         \/ ms = {}
-\*      THEN {}
-\*      ELSE {Max(Prefix, {m.val : m \in ms})}
-\*      
-\* \* Consistency is satisified if for all values that could be committed in a ballot,
-\* \*   for each subsequent ballot, every value they could commit has the first value as a prefix
-\* \* i.e. if you commit a list, it will be a prefix of all other committed lists
-\* Consistency ==
-\*   \A b1, b2 \in Ballots : 
-\*     b1 < b2
-\*     => \A v1 \in DecidedValues(b1):
-\*        \A v2 \in DecidedValues(b2):
-\*        Prefix(v1, v2)
 =============================================================================
