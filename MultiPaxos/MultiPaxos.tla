@@ -29,17 +29,17 @@ PossibleValues == AllSeqFromSet(Values)
 
 Messages ==      [type : {"1a"}, bal : Ballots]
             \cup [type : {"1b"}, bal : Ballots, 
-                    maxVBal : Ballots \cup {-1}, maxVal : PossibleValues, maxPC : Nat,
+                    maxVBal : Ballots \cup {-1}, maxVal : PossibleValues, maxTS : Nat,
                     acc : Acceptors]
-            \cup [type : {"2a"}, bal : Ballots, val : PossibleValues, pc : Nat]
-            \cup [type : {"2b"}, bal : Ballots, val : PossibleValues, acc : Acceptors, pc : Nat]
+            \cup [type : {"2a"}, bal : Ballots, val : PossibleValues, ts : Nat]
+            \cup [type : {"2b"}, bal : Ballots, val : PossibleValues, acc : Acceptors, ts : Nat]
 
 ProposerState == [val : PossibleValues, counter : Nat]
 
 AcceptorState == [maxBal : Ballots \cup {-1},
                   maxVBal: Ballots \cup {-1},
                   maxVal : PossibleValues,
-                  maxPC : Nat]
+                  maxTS : Nat]
 
 TypeInvariant == /\ msgs \in SUBSET Messages
                  /\ acc \in [Acceptors -> AcceptorState]
@@ -53,7 +53,7 @@ vars == <<msgs, acc, prop, commits>>
 
 Init == /\ msgs = {}
         /\ acc = [a \in Acceptors |-> 
-                   [maxVBal |-> -1, maxBal |-> -1, maxVal |-> << >>, maxPC |-> 0]]
+                   [maxVBal |-> -1, maxBal |-> -1, maxVal |-> << >>, maxTS |-> 0]]
         /\ prop = [b \in Ballots |-> [val |-> << >>, counter |-> 0]]
         /\ commits = << >>
 
@@ -69,9 +69,9 @@ Phase1b(a) ==
     /\ m.type = "1a"
     /\ m.bal > acc[a].maxBal
     /\ Send([type |-> "1b", acc |-> a, 
-             bal |-> m.bal, maxVBal |-> acc[a].maxVBal, maxVal |-> acc[a].maxVal, maxPC |-> acc[a].maxPC])
+             bal |-> m.bal, maxVBal |-> acc[a].maxVBal, maxVal |-> acc[a].maxVal, maxTS |-> acc[a].maxTS])
     /\ acc' = [acc EXCEPT ![a] = [acc[a] EXCEPT !.maxBal = m.bal]]
-    /\ UNCHANGED << prop, commits  >>
+    /\ UNCHANGED << prop, commits >>
 
 QuorumExists(s, b, type) ==
   \E Q \in Quorums:
@@ -79,10 +79,10 @@ QuorumExists(s, b, type) ==
 
 ValueSelect(b) ==
   LET s == {m \in msgs : (m.type = "1b") /\ (m.bal = b)}
-      sv == {m.maxVBal: m \in s}
-      c == CHOOSE c \in sv : \A v \in sv: v =< c
+      svb == {m.maxVBal: m \in s}
+      c == Max(LAMBDA x,y: x <= y, svb)
       r == {m \in s: m.maxVBal = c}
-      m == CHOOSE m \in r : \A m1 \in r : m1.maxPC <= m.maxPC
+      m == Max(LAMBDA x,y: x.maxTS <= y.maxTS, r)
   IN m.maxVal
 
 Phase2a(b) ==
@@ -91,12 +91,12 @@ Phase2a(b) ==
          postfixOptions == {<<>>} \cup {<<v>> : v \in Values \ Range(prefix)}
      IN \E v \in postfixOptions:
           LET val == prefix \o v
-              pc == prop[b].counter + 1
-              msg == [type |-> "2a", bal |-> b, val |-> val, pc |-> pc]
+              ts == prop[b].counter + 1
+              msg == [type |-> "2a", bal |-> b, val |-> val, ts |-> ts]
           IN 
           /\ ~\E m \in msgs: m.type = "2a" /\ m.bal = b /\ m.val = val
           /\ Send(msg)
-          /\ prop' = [prop EXCEPT ![b] = [val |-> val, counter |-> pc]]
+          /\ prop' = [prop EXCEPT ![b] = [val |-> val, counter |-> ts]]
   /\ UNCHANGED << acc, commits >>
 
 Phase2b(a) ==
@@ -104,23 +104,23 @@ Phase2b(a) ==
       /\ m.type = "2a"
       /\ m.bal >= acc[a].maxBal
       /\ Prefix(acc[a].maxVal, m.val)
-      /\ Send([type |-> "2b", bal |-> m.bal, val |-> m.val, acc |-> a, pc |-> m.pc])
-      /\ acc' = [acc EXCEPT ![a] = [maxBal |-> m.bal, maxVBal |-> m.bal, maxVal |-> m.val, maxPC |-> m.pc]]
+      /\ Send([type |-> "2b", bal |-> m.bal, val |-> m.val, acc |-> a, ts |-> m.ts])
+      /\ acc' = [acc EXCEPT ![a] = [maxBal |-> m.bal, maxVBal |-> m.bal, maxVal |-> m.val, maxTS |-> m.ts]]
   /\ UNCHANGED << prop, commits >>
 
 \* Try and commit a prefix
-\*   Take the maximum pc for each acceptor, for each subset of messages which form a quorum, 
+\*   Take the maximum ts for each acceptor, for each subset of messages which form a quorum, 
 \*   and then the largest common prefix of those msgs
 Commit(b) ==
   /\ QuorumExists(msgs, b, "2b")
-  /\ LET LeqPC(ma,mb) == ma.pc =< mb.pc
+  /\ LET LeqTS(ma,mb) == ma.ts =< mb.ts
          \* Every phase 2b message for this ballot
          ms == {m \in msgs: m.type = "2b" /\ m.bal = b}
          \* The newest message for each acceptor
-         ams == {Max(LeqPC, {m \in ms: m.acc = a}): a \in {a \in Acceptors: \E m \in ms: m.acc = a}}
-         relevantQuorums == {q \in Quorums: \A a \in q: \E m \in ams: m.acc = a}
+         ams == {Max(LeqTS, {m \in ms: m.acc = a}): a \in {a \in Acceptors: \E m \in ms: m.acc = a}}
          \* Index ams on acceptors
          fams(a) == CHOOSE m \in ams: m.acc = a
+         relevantQuorums == {q \in Quorums: \A a \in q: \E m \in ams: m.acc = a}
          \* The messages for each quorum
          qams == {{fams(a): a \in q} : q \in relevantQuorums}
          \* The value decided in each quorum
