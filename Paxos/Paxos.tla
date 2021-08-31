@@ -1,4 +1,4 @@
------------------------------ MODULE MultiPaxos -----------------------------
+----------------------------- MODULE Paxos -----------------------------
 
 EXTENDS TLC, Integers, Sequences, FiniteSets
 
@@ -9,23 +9,14 @@ VARIABLES   msgs,
             prop,
             commits
 
-\* a =< b
-Prefix(a,b) ==
-  /\ Len(a) =< Len(b)
-  /\ \A i \in DOMAIN a: a[i] = b[i]
-
 Range(s) == {s[i] : i \in DOMAIN s}
 
 Max(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v1, v)
 Min(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v, v1)
 
-AllSeqFromSet(S) ==
-  LET unique(f) == \A i,j \in DOMAIN f: i /= j => f[i] /= f[j]
-      subseq(c) == {seq \in [1..c -> S]: unique(seq)}
-  IN
-  UNION {subseq(c): c \in 0..Cardinality(S)}
+None == CHOOSE v : v \notin Values
 
-PossibleValues == AllSeqFromSet(Values)
+PossibleValues == Values \cup {None}
 
 Messages ==      [type : {"1a"}, bal : Ballots]
             \cup [type : {"1b"}, bal : Ballots, 
@@ -52,8 +43,8 @@ vars == <<msgs, acc, prop, commits>>
 
 Init == /\ msgs = {}
         /\ acc = [a \in Acceptors |-> 
-                   [maxVBal |-> -1, maxBal |-> -1, maxVal |-> << >> ]]
-        /\ prop = [b \in Ballots |-> [val |-> << >>]]
+                   [maxVBal |-> -1, maxBal |-> -1, maxVal |-> None]]
+        /\ prop = [b \in Ballots |-> [val |-> None]]
         /\ commits = << >>
 
 Send(m) == msgs' = msgs \cup {m}
@@ -75,7 +66,7 @@ Phase1b(a) ==
 ValueSelect(b) ==
   LET ms == {m \in msgs : m.type = "1b" /\ m.bal = b}
       maxBalNum == Max(LAMBDA x,y: x <= y, {m.maxVBal: m \in ms})
-      maxValMsg == Max(LAMBDA x,y: Prefix(x.maxVal, y.maxVal), {m \in ms: m.maxVBal = maxBalNum})
+      maxValMsg == CHOOSE m \in ms: m.maxVBal = maxBalNum
   IN maxValMsg.maxVal
 
 Phase2a(b) ==
@@ -84,15 +75,14 @@ Phase2a(b) ==
      \E m \in msgs: /\ m.type = "1b"
                     /\ m.acc = a
 		    /\ m.bal = b
-  /\ LET prefix == IF \E m \in msgs:
+  /\ LET prevValue == IF \E m \in msgs:
                         /\ m.type = "2a"
 			/\ m.bal = b
 		   THEN prop[b].val 
 		   ELSE ValueSelect(b)
-         possibleAppends == {<<>>} \cup {<<v>> : v \in Values \ Range(prefix)}
-     IN \E v \in possibleAppends:
-          LET val == prefix \o v
-              msg == [type |-> "2a", bal |-> b, val |-> val]
+         possibleValues == IF prevValue = None THEN PossibleValues ELSE {prevValue}
+     IN \E val \in possibleValues:
+          LET msg == [type |-> "2a", bal |-> b, val |-> val]
           IN 
           /\ ~\E m \in msgs: m.type = "2a" /\ m.bal = b /\ m.val = val
           /\ Send(msg)
@@ -102,9 +92,7 @@ Phase2a(b) ==
 Phase2b(a) ==
   /\ \E m \in msgs :
       /\ m.type = "2a"
-      /\ \/ m.bal > acc[a].maxBal
-         \/ /\ m.bal = acc[a].maxBal
-            /\ Prefix(acc[a].maxVal, m.val)
+      /\ m.bal >= acc[a].maxBal
       /\ Send([type |-> "2b", bal |-> m.bal, val |-> m.val, acc |-> a])
       /\ acc' = [acc EXCEPT ![a] = [maxBal |-> m.bal, maxVBal |-> m.bal, maxVal |-> m.val]]
   /\ UNCHANGED << prop, commits >>
@@ -116,12 +104,10 @@ Commit(b) ==
 			   /\ m.type = "2b" 
 			   /\ m.bal = b 
 			   /\ m.acc = a
-			   /\ Prefix(v, m.val)
       commitable == {v \in PossibleValues: quorumExists(v)}
   IN \E v \in commitable:
        LET commit == [bal |-> b, val |-> v]
        IN
-       /\ \A v1 \in commitable: Prefix(v1, v)
        /\ ~ commit \in Range(commits)
        /\ commits' = commits \o << commit >>
        /\ UNCHANGED << msgs, acc, prop >>
@@ -135,6 +121,6 @@ Consistency ==
   \A i, j \in DOMAIN(commits):
     /\ i < j
     /\ commits[i].bal <= commits[j].bal
-    => Prefix(commits[i].val, commits[j].val)
+    => commits[i].val = commits[j].val
 
 =============================================================================
