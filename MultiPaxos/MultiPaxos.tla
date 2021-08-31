@@ -72,10 +72,6 @@ Phase1b(a) ==
     /\ acc' = [acc EXCEPT ![a] = [acc[a] EXCEPT !.maxBal = m.bal]]
     /\ UNCHANGED << prop, commits >>
 
-QuorumExists(s, b, type) ==
-  \E Q \in Quorums:
-    \A a \in Q : \E m \in s : (m.type = type) /\ m.acc = a /\ (m.bal = b)
-
 ValueSelect(b) ==
   LET ms == {m \in msgs : m.type = "1b" /\ m.bal = b}
       maxBalNum == Max(LAMBDA x,y: x <= y, {m.maxVBal: m \in ms})
@@ -83,11 +79,16 @@ ValueSelect(b) ==
   IN maxValMsg.maxVal
 
 Phase2a(b) ==
-  /\ QuorumExists(msgs, b, "1b")
+  /\ \E Q \in Quorums: 
+     \A a \in Q: 
+     \E m \in s: /\ m.type = "1b"
+                 /\ m.acc = a
+		 /\ m.bal = b
   /\ LET prefix == IF \E m \in msgs:
                         /\ m.type = "2a"
 			/\ m.bal = b
-		   THEN prop[b].val ELSE ValueSelect(b)
+		   THEN prop[b].val 
+		   ELSE ValueSelect(b)
          postfixOptions == {<<>>} \cup {<<v>> : v \in Values \ Range(prefix)}
      IN \E v \in postfixOptions:
           LET val == prefix \o v
@@ -101,8 +102,9 @@ Phase2a(b) ==
 Phase2b(a) ==
   /\ \E m \in msgs :
       /\ m.type = "2a"
-      /\ m.bal >= acc[a].maxBal
-      /\ Prefix(acc[a].maxVal, m.val)
+      /\ \/ m.bal > acc[a].maxBal
+         \/ /\ m.bal = acc[a].maxBal
+            /\ Prefix(acc[a].maxVal, m.val)
       /\ Send([type |-> "2b", bal |-> m.bal, val |-> m.val, acc |-> a])
       /\ acc' = [acc EXCEPT ![a] = [maxBal |-> m.bal, maxVBal |-> m.bal, maxVal |-> m.val]]
   /\ UNCHANGED << prop, commits >>
