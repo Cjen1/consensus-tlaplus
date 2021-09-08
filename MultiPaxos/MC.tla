@@ -12,30 +12,34 @@ a1, a2, a3
 ----
 
 \* MV CONSTANT definitions Values
-const_163102845479584000 == 
+const_1631037570427200000 == 
 {v1, v2}
 ----
 
 \* MV CONSTANT definitions Acceptors
-const_163102845479585000 == 
+const_1631037570427201000 == 
 {a1, a2, a3}
 ----
 
 \* SYMMETRY definition
-symm_163102845479586000 == 
-Permutations(const_163102845479584000) \union Permutations(const_163102845479585000)
+symm_1631037570427202000 == 
+Permutations(const_1631037570427200000) \union Permutations(const_1631037570427201000)
 ----
 
-\* CONSTANT definitions @modelParameterConstants:0Ballots
-const_163102845479587000 == 
-{1,2}
-----
-
-\* CONSTANT definitions @modelParameterConstants:1Quorums
-const_163102845479588000 == 
+\* CONSTANT definitions @modelParameterConstants:0Quorums
+const_1631037570427203000 == 
 {{a1,a2},{a2,a3},{a3,a1}}
 ----
 
+\* CONSTANT definitions @modelParameterConstants:3BallotNumbers
+const_1631037570427204000 == 
+{1,2}
+----
+
+\* PROPERTY definition @modelCorrectnessProperties:0
+prop_1631037570427206000 ==
+[][InsideBallotConsistency]_prop
+----
 =============================================================================
 \* Modification History
-\* Created Tue Sep 07 16:27:34 BST 2021 by cjjen
+\* Created Tue Sep 07 18:59:30 BST 2021 by cjjen
