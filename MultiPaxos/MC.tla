@@ -37,8 +37,8 @@ const_1631037570427204000 ==
 ----
 
 \* PROPERTY definition @modelCorrectnessProperties:0
-prop_1631037570427206000 ==
-[][InsideBallotConsistency]_prop
+\*prop_1631037570427206000 ==
+\*[][InsideBallotConsistency]_prop
 ----
 =============================================================================
 \* Modification History

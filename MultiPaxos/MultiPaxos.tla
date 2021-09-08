@@ -37,10 +37,7 @@ Messages ==      [type : {"1a"}, balNum : BallotNumbers]
             \cup [type : {"2a"}, bal : PossibleBallots]
             \cup [type : {"2b"}, acc : Acceptors, bal : PossibleBallots]
 
-ProposerState == [val : PossibleValues,
-                  valSelect : {TRUE, FALSE},
-		  committed : PossibleValues,
-		  hasCommitted : {TRUE,FALSE}]
+ProposerState == [val : PossibleValues, valSelect : {TRUE, FALSE}]
 
 AcceptorState == [maxBalNum : BallotNumbers \cup {-1}, maxBal : PossibleBallots]
 
@@ -54,7 +51,7 @@ vars == <<msgs, acc, prop>>
 
 Init == /\ msgs = {}
         /\ acc  = [a \in Acceptors |-> [maxBalNum |-> -1, maxBal |-> [bal |-> -1, val |-> <<>>]]]
-        /\ prop = [b \in BallotNumbers |-> [val |-> << >>, valSelect |-> FALSE, committed |-> <<>>, hasCommitted |-> FALSE]]
+        /\ prop = [b \in BallotNumbers |-> [val |-> << >>, valSelect |-> FALSE]]
 
 Send(m) == msgs' = msgs \cup {m}
 
@@ -99,30 +96,24 @@ Phase2b(a) ==
       /\ acc' = [acc EXCEPT ![a] = [maxBalNum |-> m.bal.bal, maxBal |-> m.bal]]
   /\ UNCHANGED << prop >>
 
-Commit(b) ==
-  \E Q \in Quorums: 
-  \E S \in SUBSET {m \in msgs: /\ m.type = "2b" 
-                               /\ m.bal.bal = b 
-       		               /\ m.acc \in Q}:
-     /\ \A a \in Q: \E m \in S: m.acc = a
-     /\ LET val == (Min(BallotLeq, {m.bal: m \in S})).val
-        IN /\ Prefix(prop[b].committed, val)
-           /\ \A m \in S: \A m1 \in S \ {m}: m.acc /= m1.acc
-           /\ prop' = [prop EXCEPT ![b] = [prop[b] EXCEPT !.committed = val, !.hasCommitted = TRUE]]
-           /\ UNCHANGED << msgs, acc >>
-
-Next == \/ \E b \in BallotNumbers   : Phase1a(b) \/ ValueSelect(b) \/ Phase2a(b) \/ Commit(b)
+Next == \/ \E b \in BallotNumbers   : Phase1a(b) \/ ValueSelect(b) \/ Phase2a(b)
         \/ \E a \in Acceptors : Phase1b(a) \/ Phase2b(a)
 
 Spec == Init /\ [][Next]_vars
 
 -----------------------------------------------------------------------------
-BetweenBallotConsistency ==
-  \A b1, b2 \in BallotNumbers: 
-  LET v1 == prop[b1].committed
-      v2 == prop[b2].committed
-  IN (b1 < b2 /\ prop[b1].hasCommitted /\ prop[b2].hasCommitted) => Prefix(v1, v2)
+PossDecided(i, v) == 
+  \E Q \in Quorums, b \in BallotNumbers:
+     \A a \in Q: \E m \in msgs: 
+        /\ m.type = "2b" 
+	/\ m.acc = a 
+	/\ m.bal.bal = b 
+	/\ Len(m.bal.val) >= i 
+	/\ m.bal.val[i] = v  
 
-InsideBallotConsistency ==
-  \A b \in BallotNumbers: Prefix(prop[b].committed, prop'[b].committed)
+Consistency == 
+  \A i, j \in 1..Cardinality(Values), vi, vj \in Values:
+  PossDecided(i, vi) /\ PossDecided(j, vj) => 
+     \/ i = j /\ vi = vj (* a slot is only ever filled with one value *)
+     \/ i /= j /\ vi /= vj (* a value cannot be in two different slots *)
 =============================================================================
