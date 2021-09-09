@@ -2,12 +2,11 @@
 
 EXTENDS TLC, Integers, Sequences, FiniteSets
 
-CONSTANTS Ballots, Acceptors, Values, Quorums
+CONSTANTS BallotNumbers, Acceptors, Values, Quorums
 
 VARIABLES   msgs,
             acc,
-            prop,
-            commits
+            prop
 
 Range(s) == {s[i] : i \in DOMAIN s}
 
@@ -18,109 +17,97 @@ None == CHOOSE v : v \notin Values
 
 PossibleValues == Values \cup {None}
 
-Messages ==      [type : {"1a"}, bal : Ballots]
-            \cup [type : {"1b"}, bal : Ballots, 
-                    maxVBal : Ballots \cup {-1}, maxVal : PossibleValues,
-                    acc : Acceptors]
-            \cup [type : {"2a"}, bal : Ballots, val : PossibleValues]
-            \cup [type : {"2b"}, bal : Ballots, val : PossibleValues, acc : Acceptors]
+BallotLeq(a, b) ==
+  \/ a.bal < b.bal
+  \/ a.bal = b.bal /\ a.val = b.val
 
-ProposerState == [val : PossibleValues]
+PossibleBallots == [bal : BallotNumbers \cup {-1}, val : PossibleValues]
 
-AcceptorState == [maxBal : Ballots \cup {-1},
-                  maxVBal: Ballots \cup {-1},
-                  maxVal : PossibleValues]
+Messages ==      [type : {"1a"}, balNum : BallotNumbers]
+            \cup [type : {"1b"}, acc : Acceptors, balNum : BallotNumbers, maxBal : PossibleBallots]
+            \cup [type : {"2a"}, bal : PossibleBallots]
+            \cup [type : {"2b"}, acc : Acceptors, bal : PossibleBallots]
+
+ProposerState == [val : PossibleValues,
+                  valSelect : {TRUE, FALSE},
+		  committed : PossibleValues,
+		  hasCommitted : {TRUE,FALSE}]
+
+AcceptorState == [maxBalNum : BallotNumbers \cup {-1}, maxBal : PossibleBallots]
 
 TypeInvariant == /\ msgs \in SUBSET Messages
                  /\ acc \in [Acceptors -> AcceptorState]
-                 /\ \A a \in Acceptors : acc[a].maxBal >= acc[a].maxVBal
-                 /\ prop \in [Ballots -> ProposerState]
-                 /\ \A v \in Range(commits) : v \in [bal : Ballots, val : PossibleValues]
+                 /\ prop \in [BallotNumbers -> ProposerState]
 
-vars == <<msgs, acc, prop, commits>>
+vars == <<msgs, acc, prop>>
 
 -----------------------------------------------------------------------------
 
 Init == /\ msgs = {}
-        /\ acc = [a \in Acceptors |-> 
-                   [maxVBal |-> -1, maxBal |-> -1, maxVal |-> None]]
-        /\ prop = [b \in Ballots |-> [val |-> None]]
-        /\ commits = << >>
+        /\ acc  = [a \in Acceptors |-> [maxBalNum |-> -1, maxBal |-> [bal |-> -1, val |-> None]]]
+        /\ prop = [b \in BallotNumbers |-> [val |-> None, valSelect |-> FALSE, committed |-> None, hasCommitted |-> FALSE]]
 
 Send(m) == msgs' = msgs \cup {m}
 
 Phase1a(b) == 
-  /\ ~\E m \in msgs: m.type = "1a" /\ m.bal = b
-  /\ Send ([type |-> "1a", bal |-> b])
-  /\ UNCHANGED << acc, prop, commits >>
+  /\ ~\E m \in msgs: m.type = "1a" /\ m.balNum = b
+  /\ Send ([type |-> "1a", balNum |-> b])
+  /\ UNCHANGED << acc, prop >>
 
 Phase1b(a) ==
   \E m \in msgs :
     /\ m.type = "1a"
-    /\ m.bal > acc[a].maxBal
-    /\ Send([type |-> "1b", acc |-> a, 
-             bal |-> m.bal, maxVBal |-> acc[a].maxVBal, maxVal |-> acc[a].maxVal])
-    /\ acc' = [acc EXCEPT ![a] = [acc[a] EXCEPT !.maxBal = m.bal]]
-    /\ UNCHANGED << prop, commits >>
+    /\ m.balNum > acc[a].maxBalNum
+    /\ acc' = [acc EXCEPT ![a] = [acc[a] EXCEPT !.maxBalNum = m.balNum]]
+    /\ Send([type |-> "1b", balNum |-> m.balNum, acc |-> a, maxBal |-> acc[a].maxBal])
+    /\ UNCHANGED << prop >>
 
 ValueSelect(b) ==
-  LET ms == {m \in msgs : m.type = "1b" /\ m.bal = b}
-      maxBalNum == Max(LAMBDA x,y: x <= y, {m.maxVBal: m \in ms})
-      maxValMsg == CHOOSE m \in ms: m.maxVBal = maxBalNum
-  IN maxValMsg.maxVal
+  /\ ~ prop[b].valSelect
+  /\ \E Q \in Quorums, S \in SUBSET {m \in msgs: (m.type = "1b") /\ (m.balNum = b)}:
+       /\ \A a \in Q: \E m \in S: m.acc = a
+       /\ LET maxBal == Max(BallotLeq, {m.maxBal: m \in S})
+          IN  /\ prop' = [prop EXCEPT ![b] = 
+	                          [prop[b] EXCEPT !.val = maxBal.val, !.valSelect = TRUE]]
+	      /\ UNCHANGED << acc, msgs >>
 
 Phase2a(b) ==
-  /\ \E Q \in Quorums: 
-     \A a \in Q: 
-     \E m \in msgs: /\ m.type = "1b"
-                    /\ m.acc = a
-		    /\ m.bal = b
-  /\ LET prevValue == IF \E m \in msgs:
-                        /\ m.type = "2a"
-			/\ m.bal = b
-		   THEN prop[b].val 
-		   ELSE ValueSelect(b)
-         possibleValues == IF prevValue = None THEN PossibleValues ELSE {prevValue}
-     IN \E val \in possibleValues:
-          LET msg == [type |-> "2a", bal |-> b, val |-> val]
-          IN 
-          /\ ~\E m \in msgs: m.type = "2a" /\ m.bal = b /\ m.val = val
-          /\ Send(msg)
-          /\ prop' = [prop EXCEPT ![b] = [val |-> val]]
-  /\ UNCHANGED << acc, commits >>
+  /\ prop[b].valSelect
+  /\ \E v \in IF prop[b].val = None THEN Values ELSE {prop[b].val}:
+        LET bal == [bal |-> b, val |-> v]
+        IN /\ Send([type |-> "2a", bal |-> bal])
+           /\ prop' = [prop EXCEPT ![b] = [prop[b] EXCEPT !.val = bal.val]]
+  /\ UNCHANGED << acc >>
 
 Phase2b(a) ==
   /\ \E m \in msgs :
       /\ m.type = "2a"
-      /\ m.bal >= acc[a].maxBal
-      /\ Send([type |-> "2b", bal |-> m.bal, val |-> m.val, acc |-> a])
-      /\ acc' = [acc EXCEPT ![a] = [maxBal |-> m.bal, maxVBal |-> m.bal, maxVal |-> m.val]]
-  /\ UNCHANGED << prop, commits >>
+      /\ m.bal.bal >= acc[a].maxBalNum
+      /\ BallotLeq(acc[a].maxBal, m.bal)
+      /\ Send([type |-> "2b", acc |-> a, bal |-> m.bal])
+      /\ acc' = [acc EXCEPT ![a] = [maxBalNum |-> m.bal.bal, maxBal |-> m.bal]]
+  /\ UNCHANGED << prop >>
 
 Commit(b) ==
-  LET quorumExists(v) == \E q \in Quorums:
-                         \A a \in q:
-			 \E m \in msgs: 
-			   /\ m.type = "2b" 
-			   /\ m.bal = b 
-			   /\ m.acc = a
-      commitable == {v \in PossibleValues: quorumExists(v)}
-  IN \E v \in commitable:
-       LET commit == [bal |-> b, val |-> v]
-       IN
-       /\ ~ commit \in Range(commits)
-       /\ commits' = commits \o << commit >>
-       /\ UNCHANGED << msgs, acc, prop >>
+  \E Q \in Quorums: 
+  \E S \in SUBSET {m \in msgs: /\ m.type = "2b" 
+                               /\ m.bal.bal = b 
+       		               /\ m.acc \in Q}:
+     /\ \A a \in Q: \E m \in S: m.acc = a
+     /\ LET val == (Min(BallotLeq, {m.bal: m \in S})).val
+        IN /\ \A m \in S: \A m1 \in S \ {m}: m.acc /= m1.acc
+           /\ prop' = [prop EXCEPT ![b] = [prop[b] EXCEPT !.committed = val, !.hasCommitted = TRUE]]
+           /\ UNCHANGED << msgs, acc >>
 
-Next == \/ \E b \in Ballots   : Phase1a(b) \/ Phase2a(b) \/ Commit(b)
+Next == \/ \E b \in BallotNumbers   : Phase1a(b) \/ ValueSelect(b) \/ Phase2a(b) \/ Commit(b)
         \/ \E a \in Acceptors : Phase1b(a) \/ Phase2b(a)
 
 Spec == Init /\ [][Next]_vars
 
+-----------------------------------------------------------------------------
 Consistency ==
-  \A i, j \in DOMAIN(commits):
-    /\ i < j
-    /\ commits[i].bal <= commits[j].bal
-    => commits[i].val = commits[j].val
-
+  \A b1, b2 \in BallotNumbers: 
+  LET v1 == prop[b1].committed
+      v2 == prop[b2].committed
+  IN (b1 < b2 /\ prop[b1].hasCommitted /\ prop[b2].hasCommitted) => v1 = v2
 =============================================================================
