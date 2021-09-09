@@ -99,7 +99,7 @@ Commit(b) ==
            /\ prop' = [prop EXCEPT ![b] = [prop[b] EXCEPT !.committed = val, !.hasCommitted = TRUE]]
            /\ UNCHANGED << msgs, acc >>
 
-Next == \/ \E b \in BallotNumbers   : Phase1a(b) \/ ValueSelect(b) \/ Phase2a(b) \/ Commit(b)
+Next == \/ \E p \in BallotNumbers   : Phase1a(p) \/ ValueSelect(p) \/ Phase2a(p) \/ Commit(p)
         \/ \E a \in Acceptors : Phase1b(a) \/ Phase2b(a)
 
 Spec == Init /\ [][Next]_vars
@@ -110,4 +110,9 @@ Consistency ==
   LET v1 == prop[b1].committed
       v2 == prop[b2].committed
   IN (b1 < b2 /\ prop[b1].hasCommitted /\ prop[b2].hasCommitted) => v1 = v2
+
+ProposerConsistency ==
+  \A b \in BallotNumbers: 
+     prop[b].hasCommitted => /\ prop'[b].hasCommitted
+                             /\ prop[b].committed = prop'[b].committed 
 =============================================================================
