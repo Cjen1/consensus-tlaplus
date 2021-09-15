@@ -23,15 +23,6 @@ Range(s) == {s[i] : i \in DOMAIN s}
 Max(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v1, v)
 Min(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v, v1)
 
-(* All possible sequences from a set of items. *)
-AllSeqFromSet(S) ==
-  LET unique(f) == \A i,j \in DOMAIN f: i /= j => f[i] /= f[j]
-      subseq(c) == {seq \in [1..c -> S]: unique(seq)}
-  IN
-  UNION {subseq(c): c \in 0..Cardinality(S)}
-
-PossibleValues == AllSeqFromSet(Values)
-
 (* The comparison function used by acceptors to update acc[a].maxBal
  * It is also used by the ValueSelect function to choose the 'maximum' ballot
  * And by the proposer to commit the 'minimum' of the quorum responses. *)
@@ -54,10 +45,9 @@ Phase1a(b) ==
   /\ Send ([type |-> "1a", balNum |-> b])
   /\ UNCHANGED << acc, prop >>
 
-(* Phase 1b: When an acceptor receives a 1a message, if that message
- * is from a higher ballot number than the highest one heard of, 
- * then update the highest ballot number and respond with the 
- * stored highest ballot. *)
+(* Phase 1b: When an acceptor receives a 1a message, if that message is from 
+ * a higher ballot number than the highest one heard of, then update the 
+ * highest ballot number and respond with the stored highest ballot. *)
 Phase1b(a) ==
   \E m \in msgs :
     /\ m.type = "1a"
@@ -66,9 +56,9 @@ Phase1b(a) ==
     /\ Send([type |-> "1b", balNum |-> m.balNum, acc |-> a, maxBal |-> acc[a].maxBal])
     /\ UNCHANGED << prop >>
 
-(* ValueSelect: When a proposer receives a quorum of phase 1b responses,
- * it sets valSelect and its value to the value of the maximum ballot
- * within those responses. This enables Phase2a. *)
+(* ValueSelect: When a proposer receives a quorum of phase 1b responses, it sets
+ * valSelect and its stored value to the value of the maximum ballot within 
+ * those responses. This enables Phase2a. *)
 ValueSelect(b) ==
   /\ ~ prop[b].valSelect
   /\ \E Q \in Quorums, S \in SUBSET {m \in msgs: (m.type = "1b") /\ (m.balNum = b)}:
@@ -111,17 +101,28 @@ Commit(b) ==
                                /\ m.bal.bal = b 
        		               /\ m.acc \in Q}:
      /\ \A a \in Q: \E m \in S: m.acc = a
-     /\ LET val == Min(Prefix, {m.bal.val: m \in S})
+     /\ LET val == (Min(BallotLeq, {m.bal: m \in S})).val
         IN /\ Prefix(prop[b].committed, val)
            /\ \A m \in S: \A m1 \in S \ {m}: m.acc /= m1.acc
            /\ prop' = [prop EXCEPT ![b] = [prop[b] EXCEPT !.committed = val, !.hasCommitted = TRUE]]
            /\ UNCHANGED << msgs, acc >>
 
+(* Next: a disjunction of all possible actions. Since each action asserts that
+ * other states are unchanged only one is true at a time. *)
 Next == \/ \E p \in BallotNumbers   : Phase1a(p) \/ ValueSelect(p) \/ Phase2a(p) \/ Commit(p)
         \/ \E a \in Acceptors : Phase1b(a) \/ Phase2b(a)
 
 -----------------------------------------------------------------------------
 (* Type checking invariant *)
+
+(* All possible sequences from a set of items. *)
+AllSeqFromSet(S) ==
+  LET unique(f) == \A i,j \in DOMAIN f: i /= j => f[i] /= f[j]
+      subseq(c) == {seq \in [1..c -> S]: unique(seq)}
+  IN
+  UNION {subseq(c): c \in 0..Cardinality(S)}
+
+PossibleValues == AllSeqFromSet(Values)
 
 PossibleBallots == [bal : BallotNumbers \cup {-1}, val : PossibleValues]
 
@@ -148,8 +149,8 @@ vars == <<msgs, acc, prop>>
 Spec == Init /\ [][Next]_vars
 
 -----------------------------------------------------------------------------
-(* The system is consistent if once a log is committed, that any subsequently
- * committed logs extend it. *)
+(* The system is consistent if once a log is committed, that any logs
+ * committed in greater ballots must extend it. *)
 Consistency ==
   \A b1, b2 \in BallotNumbers: 
   LET v1 == prop[b1].committed
