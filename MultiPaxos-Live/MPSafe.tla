@@ -5,7 +5,7 @@ CONSTANTS MaxBallot
 
 FiniteRounds == -1..MaxBallot
 
-Symmetry == Permutations(Proposers) \union Permutations(Acceptors) \union Permutations(Values)
+Symmetry == Permutations(Acceptors) \union Permutations(Values)
 
 ----
 
@@ -17,8 +17,7 @@ PossiblyDecided(l) ==
                                /\ Prefix(l, m.bal.val)
 
 ImplicitConsistency ==
-  LET 
-      relevantMsgs == {m \in Messages: m.type = "2a"}
+  LET relevantMsgs == {m \in Messages: m.type = "2a"}
       proposedValues == {m.bal.val : m \in relevantMsgs}
   IN \A l1, l2 \in {l \in proposedValues: PossiblyDecided(l)}:
     Prefix(l1, l2) \/ Prefix(l2, l1)
