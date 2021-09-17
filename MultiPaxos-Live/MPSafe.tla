@@ -9,17 +9,18 @@ Symmetry == Permutations(Proposers) \union Permutations(Acceptors) \union Permut
 
 ----
 
-(* The system is consistent if any two proposers with committed logs, if one's ballot is greater it's log will extend the lower's one*)
-Consistency ==
-  \A p1, p2 \in Proposers: 
-  (prop[p1].commitBal < prop[p2].commitBal) => Prefix(prop[p1].committed, prop[p2].committed)
+PossiblyDecided(l) ==
+  \E Q \in Quorums, b \in BallotNumbers: 
+    \A a \in Q: \E m \in msgs: /\ m.type = "2b"
+                               /\ m.acc = a
+                               /\ m.bal.bal = b
+                               /\ Prefix(l, m.bal.val)
 
-(* A proposer should only ever extend its committed log. This should allow
- * reads to be served by the proposer. *)
-ProposerConsistency ==
-  \A p \in Proposers: Prefix(prop[p].committed, prop'[p].committed)
-
-TemporalProperties ==
-  [][ProposerConsistency]_prop
+ImplicitConsistency ==
+  LET 
+      relevantMsgs == {m \in Messages: m.type = "2a"}
+      proposedValues == {m.bal.val : m \in relevantMsgs}
+  IN \A l1, l2 \in {l \in proposedValues: PossiblyDecided(l)}:
+    Prefix(l1, l2) \/ Prefix(l2, l1)
 
 ====
