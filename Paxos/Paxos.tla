@@ -1,5 +1,9 @@
 ----------------------------- MODULE Paxos -----------------------------
 
+(* Adapated from the excellent Paxos example at 
+ * https://github.com/tlaplus/Examples/blob/master/specifications/Paxos/Paxos.tla
+ *)
+
 EXTENDS TLC, Integers, Sequences, FiniteSets
 
 CONSTANTS BallotNumbers, Acceptors, Values, Quorums
