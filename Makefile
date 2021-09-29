@@ -1,11 +1,12 @@
 
 .PHONY: test
-test: test-multipaxos
+test: test-logpaxos test-paxos
 
-.PHONY: multipaxos
-test-multipaxos:
-	tlc2 MultiPaxos/MC.tla
+.PHONY: test-logpaxos
+test-logpaxos:
+	tlc2 LogPaxos/MC.tla
 
+.PHONY: test-paxos
 test-paxos:
 	tlc2 Paxos/MC.tla
 
