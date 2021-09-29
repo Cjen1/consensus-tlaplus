@@ -1,5 +1,5 @@
 ---- MODULE MC ----
-EXTENDS MultiPaxos, TLC
+EXTENDS LogPaxos, TLC
 
 \* MV CONSTANT declarations@modelParameterConstants
 CONSTANTS

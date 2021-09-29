@@ -1,4 +1,4 @@
------------------------------ MODULE MultiPaxos -----------------------------
+----------------------------- MODULE LogPaxos -----------------------------
 
 EXTENDS TLC, Integers, Sequences, FiniteSets
 
