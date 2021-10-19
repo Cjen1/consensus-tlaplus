@@ -158,8 +158,10 @@ TypeInvariant ==
 ----
 \* -------- Invariants --------
 
+ProposedValues == {m.bal.val : m \in {m \in msgs : m.type = "2a"}}
+
 Consistency == 
-  \A v1 , v2 \in Values: PaxosCommitable(v1) /\ PaxosCommitable(v2) => LEQ(v1, v2) \/ LEQ(v2, v1)
+  \A v1 , v2 \in ProposedValues: PaxosCommitable(v1) /\ PaxosCommitable(v2) => LEQ(v1, v2) \/ LEQ(v2, v1)
 
 =============================================================================
 \* Modification History

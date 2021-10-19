@@ -7,6 +7,8 @@ CONSTANTS Acceptors, P1Quorums, P2Quorums, Commands, BallotNumbers
 VARIABLES msgs,
           acc
 
+Values == AllSeqFromSet(Commands)
+
 InitialValue == <<>>
 
 LEQ(a,b) ==
@@ -16,8 +18,6 @@ LEQ(a,b) ==
 UpdatePrev(prev, c) == prev \o <<c>>
 
 CommandsRepresented(v) == Range(v)
-
-Values == AllSeqFromSet(Commands)
 
 R == 
   INSTANCE OnePaxos WITH
