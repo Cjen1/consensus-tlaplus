@@ -6,7 +6,7 @@
 
 EXTENDS TLC, Integers, Sequences, FiniteSets
 
-CONSTANTS BallotNumbers, Proposers, Acceptors, Commands, Quorums
+CONSTANTS Proposers, Acceptors, Commands, Quorums
 
 VARIABLES   msgs,
             acc,
@@ -22,7 +22,7 @@ IncrementBallotNumber(b, b_dep) == << b[1], b[2] \cup {b_dep} >>
 
 BalNumLeq(a,b) ==
   \/ a = b
-  \/ a \in b.dep
+  \/ a \in b[2]
 
 Max(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v1, v)
 Min(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v, v1)
@@ -41,7 +41,7 @@ BallotLeq(a, b) ==
 (* Initial state of the the system. *)
 Init == /\ msgs = {}
         /\ acc  = [a \in Acceptors |-> [maxBalNum |-> InitBalNum, maxBal |-> [bal |-> InitBalNum, val |-> None]]]
-        /\ prop = [p \in Proposers |-> [balNum |-> << prop, {InitBalNum} >>]]
+        /\ prop = [p \in Proposers |-> [balNum |-> << p, {InitBalNum} >>]]
 
 Send(m) == msgs' = msgs \cup {m}
 
@@ -104,8 +104,8 @@ Phase2b(a) ==
 
 (* Next: a disjunction of all possible actions. Since each action asserts that
  * other states are unchanged only one is true at a time. *)
-Next == /\ \/ \E p \in BallotNumbers : RNack(p)   \/ Phase1a(p) \/ Phase2a(p)
-           \/ \E a \in Acceptors     :               Phase1b(a) \/ Phase2b(a)
+Next == /\ \/ \E p \in Proposers : RNack(p)   \/ Phase1a(p) \/ Phase2a(p)
+           \/ \E a \in Acceptors :               Phase1b(a) \/ Phase2b(a)
 
 -----------------------------------------------------------------------------
 (* Type checking invariant *)
@@ -114,9 +114,8 @@ PossibleValues == Commands \cup {None}
 
 RECURSIVE IsBalNum(_)
 IsBalNum(b) ==
-  \/ /\ b[1] = Bot
-     /\ b[2] = {}
-  \/ /\ b[1] \in Acceptors
+  \/ b = InitBalNum
+  \/ /\ b[1] \in Proposers
      /\ \A b1 \in b[2]: IsBalNum(b1)
 
 IsBallot(b) ==
@@ -134,6 +133,22 @@ Is1b(m) ==
   /\ m.type = "1b"
   /\ m.acc \in Acceptors
   /\ IsBalNum(m.balNum)
+  /\ IsBallot(m.maxBal)
+
+IsNack(m) ==
+  /\ DOMAIN m = {"type", "balNum"}
+  /\ m.type = "nack"
+  /\ IsBalNum(m.balNum)
+
+Is2a(m) ==
+  /\ DOMAIN m = {"type", "bal"}
+  /\ m.type = "2a"
+  /\ IsBallot(m.bal)
+
+Is2b(m) ==
+  /\ DOMAIN m = {"type", "bal", "acc"}
+  /\ m.type = "2b"
+  /\ m.acc \in Acceptors
   /\ IsBallot(m.bal)
 
 IsProposer(p) ==
@@ -147,6 +162,9 @@ IsAcceptor(a) ==
 
 TypeInvariant == /\ \A m \in msgs: \/ Is1a(m)
                                    \/ Is1b(m)
+				   \/ IsNack(m)
+				   \/ Is2a(m)
+				   \/ Is2b(m)
                  /\ \A p \in Proposers: IsProposer(prop[p])
                  /\ \A a \in Acceptors: IsAcceptor(acc[a])
 
