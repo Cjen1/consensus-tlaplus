@@ -32,6 +32,30 @@ MaxBallotDepth ==
 CONSTANT MaxDepth
 BallotConstraint == MaxBallotDepth <= MaxDepth
 
+VARIABLES commit
+
+Commitable(v) ==
+  \E p \in Proposers:
+  \E Q \in Quorums:
+  \A a \in Q: \E m \in msgs: 
+    /\ m.type = "2b"
+    /\ m.bal = [bal |-> prop[p].balNum, val |-> v]
+    /\ m.acc = a
+
+TryCommit == 
+  LET commitable == {v \in Commands: Commitable(v)}
+  IN IF commitable = {}
+     THEN commit' = commit
+     ELSE \E v \in commitable: commit' = v
+
+Consistency == [][commit = None \/ commit' = commit]_<<commit>>
+
+ConsNext == Next /\ TryCommit
+
+consvars == vars \o << commit >>
+
+ConsistencySpec == Init /\ (commit = None) /\ [][ConsNext]_consvars
+
 =============================================================================
 \* Modification History
 \* Created Thu Sep 09 11:49:18 BST 2021 by cjen1

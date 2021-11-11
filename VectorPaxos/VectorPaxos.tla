@@ -176,12 +176,14 @@ Spec == Init /\ [][Next]_vars
 
 -----------------------------------------------------------------------------
 
-Commitable(v) ==
-  \E p \in Proposers:
-  \E Q \in Quorums:
-  \E S \in SUBSET {m \in msgs: m.type = "2b" /\ m.bal = [bal |-> prop[p].balNum, val |-> v]}:
-     \A a \in Q: \E m \in S: m.acc = a
-
-Consistency == \A v \in Commands: [](Commitable(v) => [](\A v1 \in Commands: Commitable(v1) => v = v1))
-
+\*(* A ballot is commitable if there exists a proposer which could commit it *)
+\*Commitable(v) ==
+\*  \E p \in Proposers:
+\*  \E Q \in Quorums:
+\*  \A a \in Q: \E m \in msgs: 
+\*    /\ m.type = "2b"
+\*    /\ m.bal = [bal |-> prop[p].balNum, val |-> v]
+\*    /\ m.acc = a
+\*
+\*Consistency == \A v \in Commands: [](Commitable(v) => [](\A v1 \in Commands: Commitable(v1) => v = v1))
 =============================================================================
