@@ -18,7 +18,13 @@ Bot == CHOOSE a : a \notin Acceptors
 
 InitBalNum == << Bot, {} >>
 
-IncrementBallotNumber(b, b_dep) == << b[1], b[2] \cup {b_dep} >>
+RECURSIVE RepBals(_)
+RepBals(b) ==
+  IF b = InitBalNum
+  THEN {InitBalNum}
+  ELSE UNION {RepBals(b1) : b1 \in b[2]} \cup {b}
+
+IncrementBallotNumber(b, b1) == << b[1], RepBals(b) \cup RepBals(b1) >>
 
 BalNumLeq(a,b) ==
   \/ a = b
