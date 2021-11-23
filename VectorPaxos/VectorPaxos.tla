@@ -39,7 +39,7 @@ None == CHOOSE v : v \notin Commands
  * It is also used by the ValueSelect function to choose the 'maximum' ballot
  * And by the proposer to commit the 'minimum' of the quorum responses. *)
 BallotLeq(a, b) ==
-  \/ BalNumLeq(a.bal, b.bal)
+  \/ BalNumLeq(a.bal, b.bal) /\ ~ BalNumLeq(b.bal, a.bal)
   \/ a.bal = b.bal /\ a.val = b.val
 
 -----------------------------------------------------------------------------
