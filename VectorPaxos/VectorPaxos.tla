@@ -1,195 +1,238 @@
 ----------------------------- MODULE VectorPaxos -----------------------------
 
-(* Adapated from the excellent Paxos example at 
- * https://github.com/tlaplus/Examples/blob/master/specifications/Paxos/Paxos.tla
- *)
-
 EXTENDS TLC, Integers, Sequences, FiniteSets
 
-CONSTANTS Proposers, Acceptors, Commands, Quorums
-
-VARIABLES   msgs,
-            acc,
-            prop
-
 ----
-
-Bot == CHOOSE a : a \notin Acceptors
-
-InitBalNum == << Bot, {} >>
-
-RECURSIVE RepBals(_)
-RepBals(b) ==
-  IF b = InitBalNum
-  THEN {InitBalNum}
-  ELSE UNION {RepBals(b1) : b1 \in b[2]} \cup {b}
-
-IncrementBallotNumber(b, b1) == << b[1], RepBals(b) \cup RepBals(b1) >>
-
-BalNumLeq(a,b) ==
-  \/ a = b
-  \/ a \in b[2]
-
+(* Generic utils *)
 Max(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v1, v)
 Min(Leq(_,_), s) == CHOOSE v \in s: \A v1 \in s: Leq(v, v1)
 
-None == CHOOSE v : v \notin Commands
+Replace(F, F1) ==
+  [x \in DOMAIN F |-> IF x \in DOMAIN F1 THEN F1[x] ELSE F[x]]
 
-(* The comparison function used by acceptors to update acc[a].maxBal
- * It is also used by the ValueSelect function to choose the 'maximum' ballot
- * And by the proposer to commit the 'minimum' of the quorum responses. *)
+Range(F) == {F[x] : x \in DOMAIN F}
+
+ProposerMapping == 
+  CHOOSE F \in [Proposers -> 0..Cardinality(Proposers)]:
+  \A p1,p2 \in Proposers: F[p1] \= F[p2]
+
+BallotNumLeq(a,b) ==
+  \/ a.num < b.num
+  \/ a.num = b.num /\ ProposerMapping(a.prop) <= ProposerMapping(b.prop)
+
 BallotLeq(a, b) ==
-  \/ BalNumLeq(a.bal, b.bal) /\ ~ BalNumLeq(b.bal, a.bal)
-  \/ a.bal = b.bal /\ a.val = b.val
+  \/ BallotNumLeq(a.b, b.b) /\ ~ BallotNumLeq(b.b, a.b)
+  \/ a = b
 
------------------------------------------------------------------------------
+----
 
-(* Initial state of the the system. *)
-Init == /\ msgs = {}
-        /\ acc  = [a \in Acceptors |-> [maxBalNum |-> InitBalNum, maxBal |-> [bal |-> InitBalNum, val |-> None]]]
-        /\ prop = [p \in Proposers |-> [balNum |-> << p, {InitBalNum} >>]]
+(* State variables and types *)
 
-Send(m) == msgs' = msgs \cup {m}
+CONSTANTS Proposers, Acceptors, Quorums, Commands, MaxChannelSize
 
-RNack(p) ==
-  \E m \in msgs:
-    /\ m.type = "nack"
-    /\ ~BalNumLeq(m.balNum, prop[p].balNum) (* p.bal < m.bal => ~ m.bal <= p.bal *)
-    /\ prop' = [prop EXCEPT ![p] = [prop[p] EXCEPT !.balNum = IncrementBallotNumber(prop[p].balNum, m.balNum)]]
-    /\ UNCHANGED << msgs, acc >>
+(* proposers
+ * acceptors
+ * channels
+ * *)
 
-(* Phase 1a: A proposer for ballot number b sends a 1a message. *)
-Phase1a(p) == 
-  /\ ~\E m \in msgs: m.type = "1a" /\ m.balNum = prop[p].balNum
-  /\ Send ([type |-> "1a", balNum |-> prop[p].balNum])
-  /\ UNCHANGED << acc, prop >>
+VARIABLES State
 
-(* Phase 1b: When an acceptor receives a 1a message, if that message is from 
- * a higher ballot number than the highest one heard of, then update the 
- * highest ballot number and respond with the stored highest ballot. *)
-Phase1b(a) ==
-  \E m \in msgs :
-    /\ m.type = "1a"
-    /\ \/ /\ BalNumLeq(acc[a].maxBalNum, m.balNum)
-	  /\ ~\E m1 \in msgs: m1.type = "1b" /\ m1.balNum = m.balNum /\ m1.acc = a
-          /\ Send([type |-> "1b", balNum |-> m.balNum, acc |-> a, maxBal |-> acc[a].maxBal])
-          /\ acc' = [acc EXCEPT ![a] = [acc[a] EXCEPT !.maxBalNum = m.balNum]]
-       \/ /\ ~ BalNumLeq(acc[a].maxBalNum, m.balNum)
-          /\ Send([type |-> "nack", balNum |-> acc[a].maxBalNum])
-	  /\ acc' = acc
-    /\ UNCHANGED << prop >>
+None == CHOOSE v \notin Commands: TRUE
 
-(* If the proposer has already sent a 2a for b, then resend *)
-Phase2a(p) ==
-  LET b == prop[p].balNum
-      p2a_msgs == {m \in msgs: m.type = "2a" /\ m.bal.bal = b}
-      all_p1b_msgs == {m \in msgs: m.type = "1b"/\ m.balNum = b}
-      quorum(S) == \E Q \in Quorums: \A a \in Q: \E m \in S: m.acc = a
-      p1b_msgs == {S \in SUBSET all_p1b_msgs: quorum(S)}
-      prev_values == IF p2a_msgs = {}
-                    THEN {Max(BallotLeq, {m.maxBal: m \in M}).val: M \in p1b_msgs}
-		    ELSE {CHOOSE v \in {m.bal.val : m \in p2a_msgs}: TRUE}
-  IN 
-  /\ \E prev \in prev_values:
-      IF prev = None
-      THEN \E c \in Commands: Send([type |-> "2a", bal |-> [bal |-> b, val |-> c]])
-      ELSE                    Send([type |-> "2a", bal |-> [bal |-> b, val |-> prev]])
-  /\ UNCHANGED << prop, acc >>
+TProposer == Proposers
+TAcceptor == Acceptors
+TProcess  == TProposer \union TAcceptor
+TCommand  == Commands
 
-(* Phase2b: An acceptor upon receiving a phase 2a message from ballot greater 
- * than or equal to its own, and which has a greater than or equal ballot than
- * its stored one updates its stored and responds with a vote for the new ballot. *)
-Phase2b(a) ==
-  /\ \E m \in msgs :
-      /\ m.type = "2a"
-      /\ BalNumLeq(acc[a].maxBalNum, m.bal.bal)
-      /\ BallotLeq(acc[a].maxBal, m.bal)
-      /\ Send([type |-> "2b", acc |-> a, bal |-> m.bal])
-      /\ acc' = [acc EXCEPT ![a] = [maxBalNum |-> m.bal.bal, maxBal |-> m.bal]]
-  /\ UNCHANGED << prop >>
+TBallotNumber == [num : Nat, prop : Proposers]
 
-(* Next: a disjunction of all possible actions. Since each action asserts that
- * other states are unchanged only one is true at a time. *)
-Next == /\ \/ \E p \in Proposers : RNack(p)   \/ Phase1a(p) \/ Phase2a(p)
-           \/ \E a \in Acceptors :               Phase1b(a) \/ Phase2b(a)
+TBallot == [bal : TBallotNumber, val : TCommand]
 
------------------------------------------------------------------------------
-(* Type checking invariant *)
+TMsg == [type |-> "1a", balNum : TBallotNumber] \union
+        [type |-> "1b", balNum : TBallotNumber, maxBal : TBallot] \union
+	[type |-> "2a", bal : TBallot]
 
-PossibleValues == Commands \cup {None}
+TChans == [(TProposer \X TAcceptor) \cup (TAcceptor \X TProposer) -> [Nat -> TMsg]]
 
-RECURSIVE IsBalNum(_)
-IsBalNum(b) ==
-  \/ b = InitBalNum
-  \/ /\ b[1] \in Proposers
-     /\ \A b1 \in b[2]: IsBalNum(b1)
+TPropSM == {[kind |-> "follower"],
+                [kind |-> "candidate", bals : [acc : Acceptors, bal : Ballots]]
+                [kind |-> "leader", val : Commands]
+	       }
 
-IsBallot(b) ==
-  /\ DOMAIN b = {"bal", "val"}
-  /\ IsBalNum(b.bal)
-  /\ b.val \in PossibleValues
+TProp == [sm : TPropSM, balNum : TBallotNumber]
 
-Is1a(m) == 
-  /\ DOMAIN m = {"type", "balNum"}
-  /\ m.type = "1a"
-  /\ IsBalNum(m.balNum)
+TAcc == [mBalNum : TBallotNumber, mBal |-> TBallot]
 
-Is1b(m) ==
-  /\ DOMAIN m = {"type", "acc", "balNum", "maxBal"}
-  /\ m.type = "1b"
-  /\ m.acc \in Acceptors
-  /\ IsBalNum(m.balNum)
-  /\ IsBallot(m.maxBal)
+TState == [ chans : TChans,
+            prop  : TProp,
+	    acc   : TAcc,
+	    commit: TCommand
+	  ]
 
-IsNack(m) ==
-  /\ DOMAIN m = {"type", "balNum"}
-  /\ m.type = "nack"
-  /\ IsBalNum(m.balNum)
+----
 
-Is2a(m) ==
-  /\ DOMAIN m = {"type", "bal"}
-  /\ m.type = "2a"
-  /\ IsBallot(m.bal)
+Init == 
+  State = [
+    chans |-> [p \in Proposers \X Acceptors |-> <<>>] \union 
+              [p \in Acceptors \X Proposers |-> <<>>],
+    prop  |-> [p \in Proposers |-> [
+                 sm |-> [kind |-> "follower"],
+                 balNum |-> 0
+                 ]
+              ],
+    acc   |-> [a \in Acceptors |-> [mBalNum |-> 0, mBal |-> [n |-> 0, v |-> None]]],
+    commit |-> None
+    ]
 
-Is2b(m) ==
-  /\ DOMAIN m = {"type", "bal", "acc"}
-  /\ m.type = "2b"
-  /\ m.acc \in Acceptors
-  /\ IsBallot(m.bal)
+----
 
-IsProposer(p) ==
-  /\ DOMAIN p = {"balNum"}
-  /\ IsBalNum(p.balNum)
+(* Specific utils *)
 
-IsAcceptor(a) ==
-  /\ DOMAIN a = {"maxBalNum", "maxBal"}
-  /\ IsBalNum(a.maxBalNum)
-  /\ IsBallot(a.maxBal)
+SetAcc(st, a, ap) ==
+  [st EXCEPT !.acc = [st.acc EXCEPT ![a] = ap]]
 
-TypeInvariant == /\ \A m \in msgs: \/ Is1a(m)
-                                   \/ Is1b(m)
-				   \/ IsNack(m)
-				   \/ Is2a(m)
-				   \/ Is2b(m)
-                 /\ \A p \in Proposers: IsProposer(prop[p])
-                 /\ \A a \in Acceptors: IsAcceptor(acc[a])
+SetProp(st, p, pp) ==
+  [st EXCEPT !.prop = [st.prop EXCEPT ![p] = pp]]
 
-vars == <<msgs, acc, prop>>
+(* Limited window reliable inorder messaging *)
+SendChan(chan, m) ==
+  IF Len(chan) < MaxChannelSize
+  THEN chan \o << m >>
+  ELSE chan
 
------------------------------------------------------------------------------
+Send(st, m, s, d) ==
+  [st EXCEPT !.chans = Replace(st.chans, [<<s,d>> |-> SendChan(st.chans[s,d], m)])]
 
-Spec == Init /\ [][Next]_vars
+Broadcast(st, m, s, D) ==
+  LET updatedChans == UNION {[<<s,d>> |-> SendChan(st.chans[s,d], m)]: d \in D}
+  IN [st EXCEPT !.chans = Replace(st.chans, updatedChans)]
 
------------------------------------------------------------------------------
+RecvOne(st, s, d) ==
+  IF Len(st.chans[s,d]) > 0
+  THEN [
+    poss |-> TRUE,
+    msg |-> [msg |-> Head(st.chans[s,d]), src |-> s],
+    st |-> [st EXCEPT !.chans = [st.chans EXCEPT ![s,d] = Tail(st.chans[s,d],m]],
+    src |-> s
+  ]
+  ELSE [poss |-> FALSE]
 
-\*(* A ballot is commitable if there exists a proposer which could commit it *)
-\*Commitable(v) ==
-\*  \E p \in Proposers:
-\*  \E Q \in Quorums:
-\*  \A a \in Q: \E m \in msgs: 
-\*    /\ m.type = "2b"
-\*    /\ m.bal = [bal |-> prop[p].balNum, val |-> v]
-\*    /\ m.acc = a
-\*
-\*Consistency == \A v \in Commands: [](Commitable(v) => [](\A v1 \in Commands: Commitable(v1) => v = v1))
-=============================================================================
+RecvAbles(st, d) ==
+  LET recvables == {RecvOne(st, s, d):s \in Processes}
+  IN {rs \in recvables: rs.poss}
+
+----
+
+(* State transitions *)
+
+DoPhase1a(st, p) ==
+  LET pState == st.prop[p]
+      nPState == [pState EXCEPT !.balNum = [num |-> pState.balNum.num + 1, prop |-> p], !.sm = [kind |-> "follower"]]
+      nUState == SetProp(st, p, nPState)
+  IN Broadcast(nUState, [type |-> "1a", balNum |-> nPState.balNum], s, Acceptors)
+
+DoPhase1b(st, a, p, m1a) ==
+  LET aState == st.acc[a]
+      m1b == [type |-> "1b", balNum |-> m.balNum, maxBal |-> aState.maxBal]
+      nAState == [aState EXCEPT !.mBalNum = m1a.balNum]
+      uState == SetAcc(st, nAState)
+  IN IF aState.mBalNum <= m1a.balNum
+     THEN Send(uState, m, a, p)
+     ELSE st
+
+DoR1b(st, p, a, m1b) ==
+  LET pState == st.prop[p]
+      nPState == [pState EXCEPT !.sm = [pState.sm EXCEPT !.bals = !.bals \cup [acc |-> a, bal |-> m1b.maxBal]]]
+  IN IF pState.sm.kind = "candidate"
+     THEN SetProp(st, p, nPState)
+     ELSE st
+
+Phase2a(st, p) ==
+  IF st.prop[p].sm.kind = "candidate" /\ \E Q \in Quorums: \A a \in Q: \E b \in st.prop[p].sm.bals: b.acc = a
+  THEN LET chosen_value == Max(BallotLeq, {b.bal : b \in st.prop[p].sm.bals}).val
+           nPState == [st.prop[p] EXCEPT !.sm = [kind |-> "leader", val |-> chosen_value]]
+	   nUState == SetProp(st, nPState)
+	   value_options == IF chosen_value = None THEN Commands ELSE {chosen_value}
+       IN {Broadcast(
+             nUState,
+             [type |-> "2a", bal |-> [bal |-> chosen_value, val |-> chosen_value],
+	     p,
+	     Acceptors)
+	  :v \in value_options}
+  ELSE IF st.prop[p].sm.kind = "leader"
+  THEN {Broadcast(
+          st,
+          [type |-> "2a", bal |-> [bal |-> st.prop[p].balNum, val |-> st.prop[p].sm.val]],
+	  p,
+	  Acceptors)}
+  ELSE {st}
+
+DoPhase2b(st, a, p, m2a) ==
+  LET aState == st.acc[a]
+      nAState == [aState EXCEPT !.mBalNUm = m2a.bal.bal, !.mBal = m2a.bal]
+      nUState == SetAcc(st, a, nAState)
+  IN IF /\ aState.maxBalNum <= m2a.bal.bal
+        /\ BallotLeq(aState.mBal, m2a.bal)
+     THEN nUState
+     ELSE st
+
+----
+
+(* Spec construction *)
+
+DoPropAnytime(st, p) == {DoPhase1a(st, p)} \union DoPhase2a(st, p)}
+
+DoPropRecv(st, p) ==
+  LET msgs == RecvAbles(st, p)
+      doPropRecv(st, m, src) ==
+        IF m.type = "1b"
+	  THEN DoR1b(st, p, src, m)
+	  ELSE st
+  IN {doPropRecv(s.st, s.msg, s.src) : s \in msgs}
+
+DoAccRecv(st, a) ==
+  LET msgs == RecvAbles(st, a)
+      doAccRecv(st, m, src) ==
+        IF m.type = "1a"
+	  THEN DoPhase1b(st, a, src, m)
+	ELSE IF m.type = "2a"
+	  THEN DoPhase2b(st, a, src, m)
+	ELSE Assert(FALSE, [invalid |-> m])
+  IN {doAccRecv(s.st, s.msg, s.src) : s \in msgs}
+
+\* If there exists a quorum of acceptors with the same ballot number and value, then that could be committed
+UpdateCommit(st) ==
+  LET commitable(Q) ==
+        LET arbA == CHOOSE a \in Q: TRUE
+	    bal == st.acc[a].mBal
+	IN IF \A a \in Q: st.acc[a].mBal = bal
+	   THEN [poss |-> TRUE, val |-> bal.val]
+	   ELSE [poss |-> FALSE]
+      commitProbes == {commitable(Q) : Q \in Quorums}
+      canCommit == {cp \in commitProbes: cp.poss}
+      committed == CHOOSE v \in canCommit: TRUE
+  IN IF canCommit \= {} /\ Assert(Cardinality(canCommit) \in {0, 1}, canCommit)
+     THEN [st EXCEPT commit = committed]
+     ELSE st
+
+Normalise(st) == st
+Generalise(st) == st
+
+Next ==
+  LET st == Normalise(State)
+      nextStates == 
+        UNION (
+          {DoPropAnytime(st, p) : p \in Proposers} \union
+	  {DoPropRecv(st, p)    : p \in Proposers} \union
+	  {DoAccRecv(st, a)     : a \in Acceptors}
+	)
+  IN \E st \in NextStates: State' = Generalise(UpdateCommit(st))
+
+Spec == Init /\ [][Next]_<< State >>
+
+MaxBalNum == 
+  LET bals == {State.prop[p].balNum :p \in Proposers}
+  IN Max(BallotNumLeq, bals).num
+
+TypeInvariant == State \in TState
+    
