@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "apalache-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1653067434,
+        "narHash": "sha256-PShvKNT7WgP+4oxgGa6wog+F+TMh5/PKP3KWY8uhkJQ=",
+        "owner": "informalsystems",
+        "repo": "apalache",
+        "rev": "72baae91f029db4b356077bd073ec5620a0f2d2b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "informalsystems",
+        "ref": "v0.25.3",
+        "repo": "apalache",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "locked": {
         "lastModified": 1652776076,
@@ -32,8 +49,25 @@
     },
     "root": {
       "inputs": {
+        "apalache-src": "apalache-src",
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "sbt-derivation": "sbt-derivation"
+      }
+    },
+    "sbt-derivation": {
+      "locked": {
+        "lastModified": 1617466857,
+        "narHash": "sha256-Z7eWMLreLtiSiJ3nWDWBy1w9WNEFexkYCgT/dWZF7yo=",
+        "owner": "zaninime",
+        "repo": "sbt-derivation",
+        "rev": "920b6f187937493371e2b1687261017e6e014cf1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "zaninime",
+        "repo": "sbt-derivation",
+        "type": "github"
       }
     }
   },

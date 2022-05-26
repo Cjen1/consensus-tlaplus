@@ -14,55 +14,57 @@
 
 EXTENDS Integers, FiniteSets, TLC
 
-CONSTANTS Acceptors, PropValues
+CONSTANTS 
+  \* @type: Set(Str);
+  Acceptors, 
+  \* @type: Set(Str);
+  PropValues
 
-VARIABLES acc, prop, msg
+VARIABLES 
+  \* @type: Str -> BALLOT;
+  acc,
+  \* @type: Str -> BALLOT;
+  prop,
+  \* @type: Set([kind : Str, src : Str, bal : BALLOT]);
+  msg
 
-BallotNumbers == Nat
+\* @typeAlias: COMMITABLE_VALUE = Set(Str);
+\* @typeAlias: BALLOT = [num : Int, val : COMMITABLE_VALUE];
+\* @typeAlias: MESSAGE = [kind: Str, src : Str, bal : BALLOT];
 
 vars == << acc, prop, msg >>
 
 Proposers == PropValues
 
-None == CHOOSE v: v \notin SUBSET PropValues
-
 \* This is the simple majority quorums approach
 \* Fast flexible paxos should be feasible
 Quorums == {Q \in SUBSET Acceptors: Cardinality(Q) = (2 * Cardinality(Acceptors)) \div 3 + 1}
-
-TBallot == [val : SUBSET PropValues \union {None}, num : BallotNumbers]
-
-TInitBallot == [val : {None}, num : {-1}]
-
-TMsg == [kind : {"req"}, src : Proposers, bal : TBallot] \union
-        [kind : {"ack"}, src : Acceptors, bal : TBallot]
-
-TypeOk ==
-  /\ msg  \in SUBSET TMsg
-  /\ acc  \in [Acceptors -> TBallot \union TInitBallot]
-  /\ prop \in [Proposers -> TBallot \union TInitBallot]
 
 Send(m) == msg' = msg \cup {m}
 
 Init == 
   /\ msg  = {}
-  /\ acc  = [a \in Acceptors |-> [val |-> None, num |-> -1]]
-  /\ prop = [v \in Proposers |-> [val |-> None, num |-> -1]]
+  /\ acc  = [a \in Acceptors |-> [val |-> {}, num |-> 0]]
+  /\ prop = [v \in Proposers |-> [val |-> {}, num |-> 0]]
 
+\* @type: Set(MESSAGE) => COMMITABLE_VALUE;
 ChooseValue(M) ==
-  LET V == {m.bal.val: m \in M}
-      O4(v) == 
+  LET 
+      \* @type: Set(MESSAGE) => Set(COMMITABLE_VALUE);
+      V(S) == {m.bal.val : m \in S}
+      \* @type: (COMMITABLE_VALUE, Set(MESSAGE)) => Bool;
+      O4(v, S) == 
         \E Q \in Quorums:
-        \A m \in {m \in M: m.src \in Q}: \* Q intersection M.src
-          m.bal.val = v 
-  IN IF \E v \in V: O4(v)
-     THEN CHOOSE v \in V: O4(v)
-     ELSE UNION V
+        \A m \in {m \in S: m.src \in Q}: \* Q \cup M.src
+          m.bal.val = v
+  IN IF \E v \in V(M): O4(v, M)
+     THEN CHOOSE v \in V(M): TRUE
+     ELSE UNION V(M)
 
 Propose(p) ==
-  IF prop[p].num = -1
-  THEN \* Round 0 
-    LET bal == [num |-> 0, val |-> {p}]
+  IF prop[p].num = 0
+  THEN \* Round 1 
+    LET bal == [num |-> 1, val |-> {p}]
     IN /\ prop' = [prop EXCEPT ![p] = bal]
        /\ Send([kind |-> "req", src |-> p, bal |-> bal])
        /\ UNCHANGED << acc >>
@@ -104,8 +106,19 @@ Committable(v) ==
     /\ m.bal = [val |-> v, num |-> balnum]
 
 ConsInv == \A v1, v2 \in SUBSET PropValues: (Committable(v1) /\ Committable(v2)) => v1 = v2
-NoNoneRep == \A m \in msg: m.kind = "req" => m.bal.val /= None
+NonTriviality == \A v \in SUBSET PropValues: Committable(v) => /\ v /= {} 
+                                                               /\ \A c \in v: c \in PropValues 
 
 BalLimit == 5
 BalNumConstraint == \A p \in Proposers: prop[p].num <= BalLimit
+
+\*----- Apalache -----
+
+StateInv == /\ ConsInv
+            /\ NonTriviality
+
+ConstInit4 == 
+  /\ Acceptors = {"a1", "a2", "a3", "a4"}
+  /\ PropValues = {"w", "x", "y", "z"}
+
 =============================================================================

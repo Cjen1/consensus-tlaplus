@@ -1,3 +1,5 @@
 **.toolbox
 **/states
+**/_apalache-out
 .direnv
+
