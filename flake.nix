@@ -3,7 +3,7 @@
     nixpkgs.url = github:nixos/nixpkgs;
     flake-utils.url = github:numtide/flake-utils;
     apalache-src.flake = false;
-    apalache-src.url = github:informalsystems/apalache/v0.25.3;
+    apalache-src.url = github:informalsystems/apalache;
     sbt-derivation.url = github:zaninime/sbt-derivation;
   };
 
