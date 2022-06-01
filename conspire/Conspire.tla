@@ -12,35 +12,35 @@
 
 \* Additionally this can be viewed as a piggybacked fast paxos variant
 
-EXTENDS Integers, FiniteSets, TLC
+EXTENDS Integers, FiniteSets, Apalache
 
 CONSTANTS 
-  \* @type: Set(ID);
+  \* @type: Set(ACC);
   Acceptors, 
-  \* @type: Set(ID);
+  \* @type: Set(VALUE);
   PropValues
 
 VARIABLES 
-  \* @type: Str -> BALLOT;
+  \* @type: ACC -> BALLOT;
   acc_maxVBal,
-  \* @type: Str -> BALLOTNUMBER;
+  \* @type: ACC -> BALLOTNUMBER;
   acc_maxBal,
-  \* @type: Str -> COMMITABLE_VALUE;
+  \* @type: PRO -> COMMITABLE_VALUE;
   prop_val,
-  \* @type: Str -> BALLOTNUMBER;
+  \* @type: PRO -> BALLOTNUMBER;
   prop_balnum,
-  \* @type: Str -> Set(MESSAGE);
-  prop_recv_buf,
-  \* @type: Set(MESSAGE);
+  \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg
 
-\*@typeAlias: ID = Str;
-\*@typeAlias: COMMITABLE_VALUE = Set(ID);
+\*@typeAlias: PRO = VALUE;
+\*@typeAlias: COMMITABLE_VALUE = Set(VALUE);
 \*@typeAlias: BALLOTNUMBER = Int;
 \*@typeAlias: BALLOT = [num : BALLOTNUMBER, val : COMMITABLE_VALUE];
-\*@typeAlias: MESSAGE = [tag: Str, src : Str, bal : BALLOT, balnum: BALLOTNUMBER];
+\*@typeAlias: MREQ   = [src : PRO, bal : BALLOT];
+\*@typeAlias: MREC   = [src : PRO, balnum : BALLOTNUMBER];
+\*@typeAlias: MACK   = [src : ACC, bal : BALLOT, balnum : BALLOTNUMBER]; 
 
-vars == << acc_maxVBal, acc_maxBal, prop_val, prop_balnum, msg, prop_recv_buf >>
+vars == << acc_maxVBal, acc_maxBal, prop_val, prop_balnum, msg >>
 
 Proposers == PropValues
 
@@ -48,30 +48,25 @@ Proposers == PropValues
 \* Fast flexible paxos should be feasible
 Quorums == {Q \in SUBSET Acceptors: Cardinality(Q) = (2 * Cardinality(Acceptors)) \div 3 + 1}
 
-Send(m) == msg' = msg \cup {m}
+SendReq(m) == msg' = [msg EXCEPT !.req = msg.req \union {m}]
+SendRec(m) == msg' = [msg EXCEPT !.rec = msg.rec \union {m}]
+SendAck(m) == msg' = [msg EXCEPT !.ack = msg.ack \union {m}]
 
 Init == 
-  /\ acc_maxVBal       = [a \in Acceptors |-> [val |-> {}, num |-> 0]]
-  /\ acc_maxBal   = [a \in Acceptors |-> 0]
-  /\ prop_val      = [v \in Proposers |-> {}]
-  /\ prop_balnum   = [v \in Proposers |-> 0]
-  /\ prop_recv_buf = [v \in Proposers |-> {}]
-  /\ msg           = {}
+  /\ acc_maxVBal   := [a \in Acceptors |-> [val |-> {}, num |-> 0]]
+  /\ acc_maxBal    := [a \in Acceptors |-> 0]
+  /\ prop_val      := [v \in Proposers |-> {}]
+  /\ prop_balnum   := [v \in Proposers |-> 0]
+  /\ msg           := [req |-> {}, rec |-> {}, ack |-> {}]
 
 InitPropose(p) ==
   /\ prop_balnum[p] = 0
-  /\ prop_balnum' = [prop_balnum EXCEPT ![p] = 1]
-  /\ prop_val' = [prop_val EXCEPT ![p] = {p}]
-  /\ Send([tag |-> "req", src |-> p, bal |-> [num |-> 1, val |-> {p}], balnum |-> 1])
-  /\ UNCHANGED << acc_maxVBal, acc_maxBal, prop_recv_buf >>
+  /\ prop_balnum' := [prop_balnum EXCEPT ![p] = 1]
+  /\ prop_val' := [prop_val EXCEPT ![p] = {p}]
+  /\ SendReq([src |-> p, bal |-> [num |-> 1, val |-> {p}]])
+  /\ UNCHANGED << acc_maxVBal, acc_maxBal >>
 
-RecvAck(p) ==
-  \E m \in {m \in msg: m.tag = "ack"}:
-    /\ m.balnum = prop_balnum[p]
-    /\ prop_recv_buf' = [prop_recv_buf EXCEPT ![p] = prop_recv_buf[p] \cup {m}]
-    /\ UNCHANGED << acc_maxVBal, acc_maxBal, prop_balnum, prop_val, msg>>
-
-\* @type: Set(MESSAGE) => COMMITABLE_VALUE;
+\* @type: Set(MACK) => COMMITABLE_VALUE;
 ChooseValue(M) ==
   LET 
       V == {m.bal.val : m \in M}
@@ -83,49 +78,46 @@ ChooseValue(M) ==
      THEN CHOOSE v \in V: TRUE
      ELSE UNION V
 
-\* @type: ID => Bool;
+\* @type: PRO => Bool;
 Request(p) ==
-  LET votes == {m \in prop_recv_buf[p]: m.tag = "ack" /\ m.balnum = prop_balnum[p]}
-      balnums == {m.bal.num: m \in votes}
+  \E votes \in SUBSET {m \in msg.ack: m.balnum = prop_balnum[p]}:
+  LET balnums == {m.bal.num: m \in votes}
       maxBalNum == CHOOSE b \in balnums: \A b1 \in balnums: b1 <= b
       v == ChooseValue({m \in votes: m.bal.num = maxBalNum})
   IN /\ \E Q \in Quorums: Q \subseteq {m.src: m \in votes}
-     /\ prop_val' = [prop_val EXCEPT ![p] = v]
-     /\ prop_balnum' = [prop_balnum EXCEPT ![p] = prop_balnum[p] + 1]
-     /\ Send([tag |-> "req", src |-> p, bal |-> [val |-> v, num |-> prop_balnum[p]]])
-     /\ prop_recv_buf' = [prop_recv_buf EXCEPT ![p] = {}]
+     /\ prop_val' := [prop_val EXCEPT ![p] = v]
+     /\ prop_balnum' := [prop_balnum EXCEPT ![p] = prop_balnum[p] + 1]
+     /\ SendReq([src |-> p, bal |-> [val |-> v, num |-> prop_balnum[p]]])
      /\ UNCHANGED <<acc_maxVBal, acc_maxBal >>
 
 \* Used to force a response from a quorum of proposers
-\* @type: ID => Bool;
+\* @type: PRO => Bool;
 Recover(p) ==
   LET balnum == prop_balnum[p] + 1
   IN
-  /\ prop_balnum' = [prop_balnum EXCEPT ![p] = balnum]
-  /\ prop_recv_buf' = [prop_recv_buf EXCEPT ![p] = {}]
-  /\ Send([tag |-> "rec", src |-> p, balnum |-> balnum])
+  /\ prop_balnum' := [prop_balnum EXCEPT ![p] = balnum]
+  /\ SendRec([src |-> p, balnum |-> balnum])
   /\ UNCHANGED << acc_maxVBal, acc_maxBal, prop_val >>
 
-\* @type: ID => Bool;
+\* @type: ACC => Bool;
 ReplyReq(a) ==
-  \E m \in {m \in msg: m.tag = "req"}:
+  \E m \in msg.req:
     /\ m.balnum > acc_maxBal[a]
-    /\ Send([tag |-> "ack", src |-> a, bal |-> m.bal, balnum |-> m.balnum])
-    /\ acc_maxBal' = [acc_maxBal EXCEPT ![a] = m.balnum]
-    /\ acc_maxVBal' = [acc_maxVBal EXCEPT ![a] = m.bal]
-    /\ UNCHANGED << prop_val, prop_balnum, prop_recv_buf >>
+    /\ SendAck([src |-> a, bal |-> m.bal, balnum |-> m.balnum])
+    /\ acc_maxBal' := [acc_maxBal EXCEPT ![a] = m.balnum]
+    /\ acc_maxVBal' := [acc_maxVBal EXCEPT ![a] = m.bal]
+    /\ UNCHANGED << prop_val, prop_balnum >>
 
-\* @type: ID => Bool;
+\* @type: ACC => Bool;
 ReplyRecover(a) ==
-  \E m \in {m \in msg: m.tag = "rec"}:
+  \E m \in msg.rec:
     /\ m.balnum > acc_maxBal[a]
-    /\ Send([tag |-> "ack", src |-> a, bal |-> acc_maxVBal[a], balnum |-> m.balnum])
+    /\ SendAck([src |-> a, bal |-> acc_maxVBal[a], balnum |-> m.balnum])
     /\ acc_maxBal' = [acc_maxBal EXCEPT ![a] = m.balnum]
-    /\ UNCHANGED << acc_maxVBal, prop_val, prop_balnum, prop_recv_buf >>
+    /\ UNCHANGED << acc_maxVBal, prop_val, prop_balnum >>
 
 Next ==
   \/ \E p \in Proposers: \/ InitPropose(p)
-                         \/ RecvAck(p)
                          \/ Request(p)
                          \/ Recover(p)
   \/ \E a \in Acceptors: \/ ReplyReq(a)
@@ -134,15 +126,16 @@ Next ==
 Spec == /\ Init 
         /\ [][Next]_vars 
 
-Symmetry == Permutations(PropValues) \union Permutations(Acceptors)
-
-UsedBallotNumbers == {m.bal.num: m \in msg}
+UsedBallotNumbers == 
+  {m.bal.num: m \in msg.req} \union
+  {m.balnum: m \in msg.rec}  \union
+  {m.bal.num: m \in msg.ack} \union
+  {m.balnum: m \in msg.ack}
 
 \* A ballot can be committed if there exists a quorum of responses for it
 Committable(v, b) ==
   \E Q \in Quorums:
-  \A a \in Q: \E m \in msg: 
-    /\ m.tag = "ack"
+  \A a \in Q: \E m \in msg.ack: 
     /\ m.src = a
     /\ m.bal = [val |-> v, num |-> b]
 
@@ -160,65 +153,55 @@ NonTriviality ==
 StateInv == /\ ConsInv
             /\ NonTriviality
 
-ConstInit4 == 
-  /\ Acceptors = {"a1", "a2", "a3", "a4"}
-  /\ PropValues = {"w", "x", "y", "z"}
+\*ConstInit4 == 
+\*  /\ Acceptors = {"a1", "a2", "a3", "a4"}
+\*  /\ PropValues = {"w", "x", "y", "z"}
 
 ConstInit_4_2 == 
-  /\ Acceptors = {"a1", "a2", "a3", "a4"}
-  /\ PropValues = {"x", "y"}
-
-BallotLimit == 5
-\* This ensures that after a single step the ballots are in 0..5
-BallotsBounded == \A p \in Proposers: prop_balnum[p] < BallotLimit
+  /\ Acceptors := Gen(4)
+  /\ PropValues := Gen(2)
 
 \* Full inductive invariant
 
+BallotLimit == 3
 TBallotNum == 0..BallotLimit
-TVALUE == SUBSET PropValues
-TBallot == [val : TVALUE, num : TBallotNum]
-TMsg == [tag : {"req"},  src : Proposers, bal : TBallot] \union
-        [tag : {"rec"}, src : Proposers, balnum : TBallotNum] \union
-        [tag : {"ack"},  src : Acceptors, bal : TBallot, balnum : TBallotNum]
+TValue == SUBSET PropValues
+TBallot == [val : TValue, num : TBallotNum]
+TMReq == [src : Proposers, bal : TBallot]
+TMRec == [src : Proposers, balnum : TBallotNum]
+TMAck == [src : Acceptors, bal : TBallot, balnum : TBallotNum]
 
 TypeOk ==
-  /\ msg \in SUBSET TMsg
+  /\ msg \in [req : SUBSET TMReq, rec : SUBSET TMRec, ack : SUBSET TMAck]
+  /\ msg.req \subseteq TMReq
+  /\ msg.rec \subseteq TMRec
+  /\ msg.ack \subseteq TMAck
   /\ acc_maxVBal   \in [Acceptors -> TBallot]
   /\ acc_maxBal    \in [Acceptors -> TBallotNum]
-  /\ prop_val      \in [Proposers -> TVALUE]
+  /\ prop_val      \in [Proposers -> TValue]
   /\ prop_balnum   \in [Proposers -> TBallotNum]
-  /\ prop_recv_buf \in [Proposers -> SUBSET TMsg]
 
 InvAckBalnum ==
-  \A m \in msg:
-    /\ m.tag = "ack"
+  \A m \in msg.ack:
     /\ m.balnum >= m.bal.num
 
 InvAccState ==
-  \A m \in msg: 
-    /\ m.tag = "ack" 
-    /\ \A m1 \in msg: 
-          /\ m.src = m1.src
-          /\ m.bal.num >= m.bal.num
-    => acc_maxVBal[m.src].bal = m.bal 
+  \A m \in msg.ack:
+    (\A m1 \in msg.ack: 
+       /\ m.src = m1.src
+       /\ m.bal.num >= m1.bal.num
+    ) => acc_maxVBal[m.src].bal = m.bal 
   
-InvPropBuf ==
-  \A p \in PropValues:
-  \A m \in prop_recv_buf[p]:
-     /\ m \in msg 
-     /\ m.balnum = prop_balnum[p]
-
 InvStateValid == 
   /\ TypeOk
   /\ InvAckBalnum
   /\ InvAccState
-  /\ InvPropBuf
 
 CommittedValuesAreReproposed ==
   \A b \in UsedBallotNumbers:
-     \A v \in SUBSET PropValues: 
+     \A v \in TValue: 
        Committable(v, b)
-       => \A m \in {m \in msg: m.tag = "req" /\ m.bal.num > b}: m.bal.val = v
+       => \A m \in {m \in msg.req: m.bal.num > b}: m.bal.val = v
 
 InvSafety ==
   /\ CommittedValuesAreReproposed
@@ -226,6 +209,9 @@ InvSafety ==
 IndInv == 
   /\ InvStateValid
   /\ InvSafety
+
+\* This ensures that after a single step the ballots are in 0..BallotLimit
+BallotsBounded == \A p \in Proposers: prop_balnum[p] < BallotLimit
 
 IndInvInit ==
   /\ IndInv
