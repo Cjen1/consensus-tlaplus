@@ -25,14 +25,10 @@ VARIABLES
   acc_maxVBal,
   \* @type: ACC -> BALLOTNUMBER;
   acc_maxBal,
-  \* @type: PRO -> COMMITABLE_VALUE;
-  prop_val,
   \* @type: PRO -> BALLOTNUMBER;
   prop_balnum,
   \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg,
-  \* @type: Seq([PV: COMMITABLE_VALUE, v : COMMITABLE_VALUE, prop_val : COMMITABLE_VALUE]);
-  Hist
 
 \*@typeAlias: PRO = VALUE;
 \*@typeAlias: COMMITABLE_VALUE = Set(VALUE);
@@ -42,7 +38,7 @@ VARIABLES
 \*@typeAlias: MREC   = [src : PRO, balnum : BALLOTNUMBER];
 \*@typeAlias: MACK   = [src : ACC, bal : BALLOT, balnum : BALLOTNUMBER]; 
 
-vars == << acc_maxVBal, acc_maxBal, prop_val, prop_balnum, msg >>
+vars == << acc_maxVBal, acc_maxBal, prop_balnum, msg >>
 
 Proposers == PropValues
 
@@ -57,20 +53,10 @@ SendAck(m) == msg' = [msg EXCEPT !.ack = msg.ack \union {m}]
 Init == 
   /\ acc_maxVBal   := [a \in Acceptors |-> [val |-> {}, num |-> 0]]
   /\ acc_maxBal    := [a \in Acceptors |-> 0]
-  /\ prop_val      := [v \in Proposers |-> {v}]
   /\ prop_balnum   := [v \in Proposers |-> 0]
   /\ msg           := [req |-> {}, rec |-> {}, ack |-> {}]
-  /\ Hist := << >>
 
-InitPropose(p) ==
-  LET v == prop_val[p]
-  IN
-  /\ prop_balnum[p] = 0
-  /\ prop_balnum' := [prop_balnum EXCEPT ![p] = 1]
-  /\ prop_val' := [prop_val EXCEPT ![p] = v]
-  /\ SendReq([src |-> p, bal |-> [num |-> 1, val |-> v]])
-  /\ UNCHANGED << acc_maxVBal, acc_maxBal, Hist >>
-
+\* If a value may have been decided then choose that, otherwise return set of possible values
 \* @type: Set(MACK) => COMMITABLE_VALUE;
 ChooseValue(votes) ==
   LET balnums == {m.bal.num: m \in votes}
@@ -85,49 +71,55 @@ ChooseValue(votes) ==
      THEN CHOOSE v \in V: TRUE \* A value may have been chosen
      ELSE UNION V \* No value chosen => can choose 'best' value
 
-\* @type: PRO => Bool;
+\* Send write and read
 Request(p) ==
-  \E Q \in Quorums: \* Nondeterministically receive a quorum of responses
-  LET votes == {m \in msg.ack: m.balnum = prop_balnum[p] /\ m.src \in Q}
-      PV == ChooseValue(votes)
-      v == IF PV /= {} THEN PV ELSE prop_val[p]
-  IN /\ \A a \in Q: \E m \in votes: m.src = a \* Votes is a quorum
-     /\ prop_val' := [prop_val EXCEPT ![p] = v]
+  \/ /\ prop_balnum[p] = 0
+     /\ prop_balnum' := [prop_balnum EXCEPT ![p] = 1]
+     /\ SendReq([src |-> p, bal |-> [num |-> 0, val |-> prop_val[p]]])
+     /\ UNCHANGED << acc_maxVBal, acc_maxBal >>
+  \/ \E Q \in Quorums:
+     LET votes == {m \in msg.acks: m.balnum = prop_balnum[p] /\ m.src \in Q}
+         pv = ChooseValue(votes)
+         v == IF PV /= {} THEN PV ELSE prop_val[p]
+     IN
+     /\ \A a \in Q: \E m \in votes: m.src = a
+     /\ SendReq([src |-> p, bal |-> [val |-> v, num |-> prop_balnum[p]]])
      /\ prop_balnum' := [prop_balnum EXCEPT ![p] = prop_balnum[p] + 1]
-     /\ SendReq([src |-> p, bal |-> [val |-> v, num |-> prop_balnum[p] + 1]])
-     /\ Hist' := Append(Hist, [PV |-> PV, v |-> v, prop_val |-> prop_val[p]])
-     /\ UNCHANGED <<acc_maxVBal, acc_maxBal >>
+     /\ UNCHANGED << acc_maxVBal, acc_maxBal >>
 
-\* Used to force a response from a quorum of proposers
-\* @type: PRO => Bool;
+\* Just send read
 Recover(p) ==
   /\ prop_balnum' := [prop_balnum EXCEPT ![p] = prop_balnum[p] + 1]
   /\ SendRec([src |-> p, balnum |-> prop_balnum[p] + 1])
-  /\ UNCHANGED << acc_maxVBal, acc_maxBal, prop_val, Hist >>
+  /\ UNCHANGED << acc_maxVBal, acc_maxBal >>
 
-\* @type: ACC => Bool;
-ReplyReq(a) ==
+\* We limit acceptors to one response here, since we have no explicit message loss
+\* In a real system recving a read would prompt a response
+DoRec(a, m, bal) ==
   \E m \in msg.req:
-    /\ m.balnum > acc_maxBal[a]
-    /\ SendAck([src |-> a, bal |-> m.bal, balnum |-> m.balnum])
-    /\ acc_maxBal' := [acc_maxBal EXCEPT ![a] = m.balnum]
-    /\ acc_maxVBal' := [acc_maxVBal EXCEPT ![a] = m.bal]
-    /\ UNCHANGED << prop_val, prop_balnum, Hist >>
+  /\ m.balnum > acc_maxBal[a]
+  /\ acc_maxBal' = [acc_maxBal EXCEPT ![a] = m.balnum]
+  /\ SendAck([src |-> a, bal |-> bal, balnum |-> m.balnum])
+  /\ UNCHANGED << prop_balnum >>
 
-\* @type: ACC => Bool;
-ReplyRecover(a) ==
-  \E m \in msg.rec:
-    /\ m.balnum > acc_maxBal[a]
-    /\ SendAck([src |-> a, bal |-> acc_maxVBal[a], balnum |-> m.balnum])
-    /\ acc_maxBal' = [acc_maxBal EXCEPT ![a] = m.balnum]
-    /\ UNCHANGED << acc_maxVBal, prop_val, prop_balnum, Hist >>
+\* Rec(balnum) is a read for balnum
+RecvRec(a) ==
+  \E m \in msg.req: 
+  /\ DoRec(a, m, acc_maxVBal[a])
+  /\ UNCHANGED << acc_maxVBal >>
+
+\* Req(bal) is a write for bal.num, piggybacked with a read for bal.num + 1
+RecvReq(a) ==
+  \E m \in msg.req:
+  /\ m.bal.num >= acc_maxBal[a]
+  /\ acc_maxVBal' = [acc_maxVBal EXCEPT ![a] = m.bal]
+  /\ DoRec(a, [src |-> m.src, balnum |-> m.bal.num + 1], m.bal)
 
 Next ==
-  \/ \E p \in Proposers: \/ InitPropose(p)
-                         \/ Request(p)
+  \/ \E p \in Proposers: \/ Request(p)
                          \/ Recover(p)
-  \/ \E a \in Acceptors: \/ ReplyReq(a)
-                         \/ ReplyRecover(a)
+  \/ \E a \in Acceptors: \/ RecvReq(a)
+                         \/ RecvRec(a)
 
 Spec == /\ Init 
         /\ [][Next]_vars 
@@ -138,7 +130,8 @@ UsedBallotNumbers ==
   {m.bal.num: m \in msg.ack} \union
   {m.balnum: m \in msg.ack}
 
-\* A ballot can be committed if there exists a quorum of responses for it
+\* A ballot can be committed in b if there exists a quorum of responses for it
+\* This can be extended to the consecutive ballots thingy-mabob
 Committable(v, b) ==
   \E Q \in Quorums:
   \A a \in Q: \E m \in msg.ack: 
@@ -149,11 +142,6 @@ Committable(v, b) ==
 ConsInv == 
   \A b1, b2 \in UsedBallotNumbers, v1, v2 \in SUBSET PropValues:
     (Committable(v1, b1) /\ Committable(v2, b2))    => v1 = v2
-
-NonTriviality == 
-  \A v \in SUBSET PropValues: 
-    (\E b \in UsedBallotNumbers: Committable(v, b)) => /\ v /= {} 
-                                                    /\ \A c \in v: c \in PropValues 
 
 \*----- Apalache -----
 
@@ -183,6 +171,7 @@ ConstInit_1 ==
 \*  /\ PropValues := Gen(2)
 
 \* Full inductive invariant
+(*
 
 BallotLimit == 3
 TBallotNum == 0..BallotLimit
@@ -302,5 +291,6 @@ IndInvInit ==
   /\ Hist = << >>
   /\ IndInv
   /\ BallotsBounded
+  *)
 
 =============================================================================
