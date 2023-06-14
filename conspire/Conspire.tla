@@ -32,19 +32,29 @@ VARIABLES
   \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg
 
+\* @type: (_,_) => Bool;
 PrintVal(id, exp)  ==  Print(<<id, exp>>, TRUE)
 
-LEQ(A,B) == A \subseteq B
+\* @type: Seq(VALUE) => Set(VALUE);
+Range(S) == {S[i] : i \in DOMAIN S}
 
-\*LEQ(a,b) ==
-\*  /\ Len(a) =< Len(b)
-\*  /\ \A i \in DOMAIN a: a[i] = b[i]
+\*LEQ(A,B) == A \subseteq B
+
+LEQ(a,b) ==
+  /\ Len(a) =< Len(b)
+  /\ \A i \in DOMAIN a: a[i] = b[i]
 
 \* Must preserve: \A v \in LBs: v < RES
-Merge(LBs, Vs) == UNION LBs \union UNION Vs
+\*Merge(LBs, Vs) == UNION LBs \union UNION Vs
+Merge(LBs, Vs) == 
+  IF LBs = {}
+  THEN CHOOSE v \in Vs: TRUE \* TODO fancy?
+  ELSE IF \E v \in LBs: \A v1 \in LBs: LEQ(v1, v)
+       THEN CHOOSE v \in LBs: \A v1 \in LBs: LEQ(v1, v) \* Does not work for convergent values (set, PSMR)
+       ELSE PrintVal("LBs", LBs) /\ CHOOSE v \in Vs: FALSE
 
 \*@typeAlias: PRO = VALUE;
-\*@typeAlias: COMMITABLE_VALUE = Set(VALUE);
+\*@typeAlias: COMMITABLE_VALUE = Seq(VALUE);
 \*@typeAlias: BALLOTNUMBER = Int;
 \*@typeAlias: BALLOT = [num : BALLOTNUMBER, val : COMMITABLE_VALUE];
 \*@typeAlias: MREQ   = [src : PRO, bal : BALLOT];
@@ -62,7 +72,7 @@ SendReq(m) == msg' = [msg EXCEPT !.req = msg.req \union {m}]
 SendAck(m) == msg' = [msg EXCEPT !.ack = msg.ack \union {m}]
 
 Init == 
-  /\ acc_maxVBal   = [a \in Acceptors |-> [val |-> {}, num |-> 0]]
+  /\ acc_maxVBal   = [a \in Acceptors |-> [val |-> <<>>, num |-> 0]]
   /\ acc_maxBal    = [a \in Acceptors |-> 0]
   /\ prop_balnum   = [v \in Proposers |-> 0]
   /\ msg           = [req |-> {}, ack |-> {}]
@@ -75,23 +85,33 @@ ChooseValue(votes) ==
       M == {m\in votes: m.bal.num = maxBalNum}
       V == {m.bal.val : m \in M}
       O4(v) == 
+      \* Exists a quorum which could be used to commit it.
         \E Q \in Quorums:
-        \A m \in {m \in M: m.src \in Q}: LEQ(v, m.bal.val)
-      \* Use either what could have been committed
+        \A a \in Q:
+        \* vote for larger value
+        \/ \E m \in M: m.src = a /\ LEQ(v, m.bal.val)
+        \* no such vote
+        \/ ~ \E m \in votes: m.src = a
       VO4 == {v \in V: O4(v)}
-  IN Merge(VO4, V)
+  IN 
+  IF \/ \E v \in VO4: \A v1 \in VO4: LEQ(v1, v)
+     \/ VO4 = {}
+  THEN  Merge(VO4, V)
+  ELSE /\ PrintVal("votes", votes)
+       /\ PrintVal("VO4", VO4)
+       /\ CHOOSE x \in votes: FALSE
 
 Request(p) ==
   \/ /\ prop_balnum[p] = 0
      /\ prop_balnum' = [prop_balnum EXCEPT ![p] = 1]
-     /\ SendReq([src |-> p, bal |-> [num |-> 0, val |-> {p}]])
+     /\ SendReq([src |-> p, bal |-> [num |-> 0, val |-> <<p>>]])
      /\ UNCHANGED << acc_maxBal, acc_maxVBal >>
   \* Steady state
   \/ \E b \in {m.balnum : m \in msg.ack}:
      /\ b >= prop_balnum[p]
      /\ \E votes \in SUBSET {m \in msg.ack: m.balnum = b}:
         LET pv == ChooseValue(votes)
-            v == IF pv /= {} THEN pv ELSE {p}
+            v == IF p \notin Range(pv) THEN pv \o << p >> ELSE pv
         IN
         \* valid votes
         /\ \E Q \in Quorums: \A a \in Q: \E m \in votes: m.src = a
@@ -158,166 +178,18 @@ Serialised ==
         /\ \E b \in UsedBallotNumbers: Committable(v2, b)
        ) => \/ LEQ(v1, v2)
             \/ LEQ(v2, v1)
+            \/ Print([v1 |-> v1, b1 |-> CHOOSE b \in UsedBallotNumbers: Committable(v1, b) ,v2 |-> v2, b2 |-> CHOOSE b \in UsedBallotNumbers: Committable(v2, b)  ], FALSE)
 
 Pipelined == FALSE
 
-CommitAll == CanCommit(PropValues)
+CommitAll ==
+  \E V \in UsedValues:
+  /\ \A v \in PropValues: v \in Range(V)
+  /\ CanCommit(V)
 
 Inv ==
   /\ Serialised
-  /\ ~CommitAll
 
 BallotsBounded == \A p \in Proposers: prop_balnum[p] < BallotLimit
-
-\*----- Apalache -----
-
-(*
-StateInv == /\ ConsInv
-
-ConstInit_4 == 
-  /\ Acceptors = {Gen(1), Gen(1), Gen(1), Gen(1)}
-  /\ PropValues = {Gen(1), Gen(1), Gen(1), Gen(1)}
-  /\ Cardinality(Acceptors) = 4
-  /\ Cardinality(PropValues) = 4
-
-ConstInit_4_2 == 
-  /\ Acceptors = {Gen(1), Gen(1), Gen(1), Gen(1)}
-  /\ PropValues = {Gen(1), Gen(1)}
-  /\ Cardinality(Acceptors) = 4
-  /\ Cardinality(PropValues) = 2
-
-ConstInit_1 ==
-  /\ Acceptors = {Gen(1)}
-  /\ PropValues = {Gen(1)}
-  /\ Cardinality(Acceptors) = 1
-  /\ Cardinality(PropValues) = 1
-
-\*ConstInit_4_2 == 
-\*  /\ Acceptors := Gen(4)
-\*  /\ PropValues := Gen(2)
-
-\* Full inductive invariant
-(*
-
-BallotLimit == 3
-TBallotNum == 0..BallotLimit
-TValue == SUBSET PropValues
-TBallot == [val : TValue, num : TBallotNum]
-TMReq == [src : Proposers, bal : TBallot]
-TMRec == [src : Proposers, balnum : TBallotNum]
-TMAck == [src : Acceptors, bal : TBallot, balnum : TBallotNum]
-
-TypeOk ==
-  /\ msg \in [req : SUBSET TMReq, rec : SUBSET TMRec, ack : SUBSET TMAck]
-  /\ msg.req \subseteq TMReq
-  /\ msg.rec \subseteq TMRec
-  /\ msg.ack \subseteq TMAck
-  /\ acc_maxVBal   \in [Acceptors -> TBallot]
-  /\ acc_maxBal    \in [Acceptors -> TBallotNum]
-  /\ prop_val      \in [Proposers -> TValue]
-  /\ prop_balnum   \in [Proposers -> TBallotNum]
-
-InvBalAndNum ==
-  /\ \A m \in msg.ack:
-       /\ m.balnum >= m.bal.num
-  /\ \A a \in Acceptors:
-      acc_maxBal[a] >= acc_maxVBal[a].num
-
-InvMaxAckEqAcc ==
-  \A a \in Acceptors:
-     \A m1 \in msg.ack:
-       \* If this is the 'newest' message
-       (\A m2 \in msg.ack: m1.balnum >= m2.balnum)
-       => /\ acc_maxBal[a] = m1.balnum
-          /\ acc_maxVBal[a] = m1.bal
-
-InvAckMutex ==
-  \A m1, m2 \in msg.ack:
-    (m1.balnum = m2.balnum /\ m1.src = m2.src) => m1 = m2
-
-InvAccAck ==
-  /\ \A m \in msg.ack: m.balnum > 0
-  \* Written by an req, and could be committable
-  /\ \A m \in msg.ack: m.balnum = m.bal.num => Cardinality(m.bal.val) >= 1 
-  /\ InvBalAndNum
-  /\ InvMaxAckEqAcc
-  /\ InvAckMutex
-
-InvReqQuorum ==
-  \A m \in msg.req:
-  \* Initial msg
-  \/ m.bal.num = 1
-  \* Response from quorum
-  \/ /\ m.bal.num > 1
-     /\ \E Q \in Quorums:
-        LET votes == {ma \in msg.ack: ma.balnum = m.bal.num - 1 /\ ma.src \in Q}
-            PV == ChooseValue(votes)
-        IN /\ \A a \in Q: \E ma \in votes: ma.src = a
-           /\ \/ /\ PV =  {} 
-                 /\ m.bal.val \in {{v} :v \in PropValues}
-              \/ /\ PV /= {} 
-                 /\ m.bal.val = PV
-
-InvReqRecMutex ==
-  /\ \A mq \in msg.req, mc \in msg.rec: ~(mq.src = mc.src /\ mq.bal.num = mc.balnum)
-
-InvReqRecBalnum ==
-  /\ \A mq \in msg.req: mq.bal.num <= prop_balnum[mq.src]
-  /\ \A mc \in msg.rec: mc.balnum <= prop_balnum[mc.src]
-
-InvMaxReqRecProp ==
-  \A p \in Proposers:
-  LET req == {m \in msg.req : m.src = p}
-      rec == {m \in msg.rec : m.src = p}
-      req_bal == {m.bal.num : m \in req}
-      rec_bal == {m.balnum : m \in rec}
-      balnums == req_bal \union rec_bal
-  IN
-  \* Balnum is max of req and rec msgs
-  /\ \A b1 \in balnums: 
-      (\A b2 \in balnums: b1 >= b2)
-      => prop_balnum[p] = b1
-  \* max bal in req defines val
-  /\ \/ /\ Cardinality(req) > 0 
-        /\ \A m \in req:
-             (\A m1 \in req: m.bal.num >= m1.bal.num)
-             => prop_val[p] = m.bal.val
-     \/ /\ prop_val[p] = {p}
-
-InvReqRecProp ==
-  /\ \A p \in Proposers: prop_val[p] /= {}
-  /\ InvReqQuorum
-  /\ InvReqRecMutex
-  /\ InvReqRecBalnum
-  /\ InvMaxReqRecProp
-
-InvStateValid == 
-  /\ TypeOk
-  /\ InvAccAck
-  /\ InvReqRecProp
-
-CommittedValuesAreReproposed ==
-  \A b \in UsedBallotNumbers:
-     \A v \in TValue: 
-       Committable(v, b)
-       => \A m \in {m \in msg.req: m.bal.num > b}: m.bal.val = v
-
-InvSafety ==
-  /\ CommittedValuesAreReproposed
-
-IndInv == 
-  /\ Cardinality(Quorums) >= 1
-  /\ InvStateValid
-  /\ InvSafety
-
-\* This ensures that after a single step the ballots are in 0..BallotLimit
-BallotsBounded == \A p \in Proposers: prop_balnum[p] < BallotLimit
-
-IndInvInit ==
-  /\ Hist = << >>
-  /\ IndInv
-  /\ BallotsBounded
-  *)
-*)
 
 =============================================================================
