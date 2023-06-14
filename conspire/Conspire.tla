@@ -12,7 +12,7 @@
 
 \* Additionally this can be viewed as a piggybacked fast paxos variant
 
-EXTENDS Integers, FiniteSets, Sequences
+EXTENDS Integers, FiniteSets, Sequences, TLC
 
 CONSTANTS 
   \* @type: Set(ACC);
@@ -32,9 +32,16 @@ VARIABLES
   \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg
 
+PrintVal(id, exp)  ==  Print(<<id, exp>>, TRUE)
+
 LEQ(A,B) == A \subseteq B
 
-Merge(S) == UNION S
+\*LEQ(a,b) ==
+\*  /\ Len(a) =< Len(b)
+\*  /\ \A i \in DOMAIN a: a[i] = b[i]
+
+\* Must preserve: \A v \in LBs: v < RES
+Merge(LBs, Vs) == UNION LBs \union UNION Vs
 
 \*@typeAlias: PRO = VALUE;
 \*@typeAlias: COMMITABLE_VALUE = Set(VALUE);
@@ -70,10 +77,9 @@ ChooseValue(votes) ==
       O4(v) == 
         \E Q \in Quorums:
         \A m \in {m \in M: m.src \in Q}: LEQ(v, m.bal.val)
+      \* Use either what could have been committed
       VO4 == {v \in V: O4(v)}
-  IN IF VO4 = {}
-     THEN Merge(V)
-     ELSE CHOOSE v \in VO4: \A v1 \in VO4: LEQ(v1, v)
+  IN Merge(VO4, V)
 
 Request(p) ==
   \/ /\ prop_balnum[p] = 0
@@ -130,6 +136,10 @@ UsedBallotNumbers ==
   {m.bal.num: m \in msg.ack} \union
   {m.balnum: m \in msg.ack}
 
+UsedValues ==
+  {m.bal.val: m \in msg.req} \union
+  {m.bal.val: m \in msg.ack}
+
 \* A ballot can be committed in b if there exists a quorum of responses for larger values
 \* This can be extended to the consecutive ballots thingy-mabob
 Committable(v, b) ==
@@ -143,7 +153,7 @@ CanCommit(v) ==
   \E b \in UsedBallotNumbers: Committable(v,b)
 
 Serialised ==
-  \A v1, v2 \in SUBSET PropValues:
+  \A v1, v2 \in UsedValues:
     /\ (/\ \E b \in UsedBallotNumbers: Committable(v1, b)
         /\ \E b \in UsedBallotNumbers: Committable(v2, b)
        ) => \/ LEQ(v1, v2)
@@ -152,11 +162,6 @@ Serialised ==
 Pipelined == FALSE
 
 CommitAll == CanCommit(PropValues)
-CommitOne ==
-  LET X == CHOOSE v \in PropValues: TRUE
-      Y == CHOOSE v \in PropValues: v /= X
-  IN CanCommit({X})
-  
 
 Inv ==
   /\ Serialised
