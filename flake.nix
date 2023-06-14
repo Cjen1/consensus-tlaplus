@@ -1,10 +1,10 @@
 {
   inputs = {
-    nixpkgs.url = github:nixos/nixpkgs;
-    flake-utils.url = github:numtide/flake-utils;
+    nixpkgs.url = "github:nixos/nixpkgs";
+    flake-utils.url = "github:numtide/flake-utils";
+    apalache-src.url = "github:informalsystems/apalache";
     apalache-src.flake = false;
-    apalache-src.url = github:informalsystems/apalache;
-    sbt-derivation.url = github:zaninime/sbt-derivation;
+    sbt-derivation.url = "github:zaninime/sbt-derivation";
   };
 
   outputs = { self, nixpkgs, flake-utils, apalache-src, sbt-derivation}:
@@ -17,7 +17,7 @@
       ];
     };
     apalache = let
-      version = "v0.25.3";
+      version = "v0.40.2";
       patch = ''
         diff --git a/build.sbt b/build.sbt
         index 4f9150ee5..87244fb5b 100644
@@ -33,12 +33,11 @@
                      BuildInfoKey.map(version) { case (k, v) =>
                        if (isSnapshot.value) (k -> build) else (k -> v)
       '';
-
     in pkgs.sbt.mkDerivation {
       pname = "apalache";
       inherit version;
 
-      depsSha256 = "sha256-9wGlIFmvKW4N8NQqhOlxjhl48JptHCSI8F8EFF9mYrw=";
+      depsSha256 = "sha256-+nUq7YgKn9wBZy1h+7ZHleTYoIOB5R0ynSjZcpk96wk=";
 
       src = apalache-src;
 
