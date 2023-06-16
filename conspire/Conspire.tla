@@ -90,7 +90,8 @@ Init ==
   /\ prop_balnum   = [v \in Proposers |-> 0]
   /\ msg           = [req |-> {}, ack |-> {}]
 
-\* If a value may have been decided then choose that, otherwise return set of possible values
+\* If vote for next term, then take greatest-lower-bound on values which could have been committed in this terms
+\* Otherwise choose GLB on all values from this term (since it'll be greater than any committed in previous terms)
 \* @type: Set(MACK) => COMMITABLE_VALUE;
 ChooseValue(votes) ==
   LET cbalnum == CHOOSE b \in {m.balnum: m \in votes}: TRUE
