@@ -32,11 +32,24 @@ VARIABLES
   \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg
 
-\* @type: (_,_) => Bool;
-PrintVal(id, exp)  ==  Print(<<id, exp>>, TRUE)
-
 \* @type: Seq(VALUE) => Set(VALUE);
 Range(S) == {S[i] : i \in DOMAIN S}
+
+UsedValues ==
+  {m.bal.val: m \in msg.req} \union
+  {m.bal.val: m \in msg.ack} \union
+  {acc_maxVBal[a].val: a \in Acceptors}
+   
+UsedBallotNumbers == 
+  {m.bal.num: m \in msg.req} \union
+  {m.bal.num: m \in msg.ack} \union
+  {m.balnum: m \in msg.ack} \union
+  Range(prop_balnum) \union
+  Range(acc_maxBal) \union
+  {b.num : b \in Range(acc_maxVBal)}
+
+\* @type: (_,_) => Bool;
+PrintVal(id, exp)  ==  Print(<<id, exp>>, TRUE)
 
 \*LEQ(A,B) == A \subseteq B
 
@@ -72,7 +85,7 @@ SendReq(m) == msg' = [msg EXCEPT !.req = msg.req \union {m}]
 SendAck(m) == msg' = [msg EXCEPT !.ack = msg.ack \union {m}]
 
 Init == 
-  /\ acc_maxVBal   = [a \in Acceptors |-> [val |-> <<>>, num |-> 0]]
+  /\ acc_maxVBal   = [a \in Acceptors |-> [val |-> <<>>, num |-> -1]]
   /\ acc_maxBal    = [a \in Acceptors |-> 0]
   /\ prop_balnum   = [v \in Proposers |-> 0]
   /\ msg           = [req |-> {}, ack |-> {}]
@@ -80,18 +93,28 @@ Init ==
 \* If a value may have been decided then choose that, otherwise return set of possible values
 \* @type: Set(MACK) => COMMITABLE_VALUE;
 ChooseValue(votes) ==
-  LET balnums == {m.bal.num: m \in votes}
+  LET cbalnum == CHOOSE b \in {m.balnum: m \in votes}: TRUE
+      balnums == {m.bal.num: m \in votes}
       maxBalNum == CHOOSE b \in balnums: \A b1 \in balnums: b1 <= b
       M == {m\in votes: m.bal.num = maxBalNum}
-      V == {m.bal.val : m \in M}
+      Vs == {m.bal.val : m \in M}
+      \* Generate all possibly committed lower bounds
+      V == {v \in UsedValues: \E e \in Vs: LEQ(v, e)} 
       O4(v) == 
-      \* Exists a quorum which could be used to commit it.
-        \E Q \in Quorums:
-        \A a \in Q:
-        \* vote for larger value
-        \/ \E m \in M: m.src = a /\ LEQ(v, m.bal.val)
-        \* no such vote
-        \/ ~ \E m \in votes: m.src = a
+      IF cbalnum > maxBalNum
+      THEN \* Then prev term is blocked, we take LUB
+           \* Exists a quorum which could have been used to commit it.
+           \E Q \in Quorums:
+           \A a \in Q:
+           \* acc vote for larger value
+           \/ \E m \in M: /\ m.src = a 
+                          /\ LEQ(v, m.bal.val)
+           \* acc did not vote
+           \/ ~ \E m \in votes: m.src = a
+      ELSE \* Current term can still make progress
+           \* Choose GLB
+           \* This can also be inferred using prev incremnet vote
+           \A m \in M: LEQ(v, m.bal.val)
       VO4 == {v \in V: O4(v)}
   IN 
   IF \/ \E v \in VO4: \A v1 \in VO4: LEQ(v1, v)
@@ -151,15 +174,6 @@ Next ==
 Spec == /\ Init 
         /\ [][Next]_vars 
 
-UsedBallotNumbers == 
-  {m.bal.num: m \in msg.req} \union
-  {m.bal.num: m \in msg.ack} \union
-  {m.balnum: m \in msg.ack}
-
-UsedValues ==
-  {m.bal.val: m \in msg.req} \union
-  {m.bal.val: m \in msg.ack}
-
 \* A ballot can be committed in b if there exists a quorum of responses for larger values
 \* This can be extended to the consecutive ballots thingy-mabob
 Committable(v, b) ==
@@ -191,5 +205,7 @@ Inv ==
   /\ Serialised
 
 BallotsBounded == \A p \in Proposers: prop_balnum[p] < BallotLimit
+
+Symmetry == Permutations(Proposers) \union Permutations(Acceptors)
 
 =============================================================================
