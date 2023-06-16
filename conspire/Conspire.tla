@@ -33,8 +33,10 @@ VARIABLES
   \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg
 
-\* @type: Seq(VALUE) => Set(VALUE);
+\* @type: (a -> x) => Set(x);
 Range(S) == {S[i] : i \in DOMAIN S}
+\* @type: Seq(x) => Set(x);
+RangeS(S) == {S[i] : i \in DOMAIN S}
 
 UsedValues ==
   {m.bal.val: m \in msg.req} \union
@@ -49,9 +51,6 @@ UsedBallotNumbers ==
   Range(acc_maxBal) \union
   {b.num : b \in Range(acc_maxVBal)}
 
-\* @type: (_,_) => Bool;
-PrintVal(id, exp)  ==  Print(<<id, exp>>, TRUE)
-
 \*LEQ(A,B) == A \subseteq B
 
 LEQ(a,b) ==
@@ -63,9 +62,7 @@ LEQ(a,b) ==
 Merge(LBs, Vs) == 
   IF LBs = {}
   THEN CHOOSE v \in Vs: TRUE \* TODO fancy?
-  ELSE IF \E v \in LBs: \A v1 \in LBs: LEQ(v1, v)
-       THEN CHOOSE v \in LBs: \A v1 \in LBs: LEQ(v1, v) \* Does not work for convergent values (set, PSMR)
-       ELSE PrintVal("LBs", LBs) /\ CHOOSE v \in Vs: FALSE
+  ELSE CHOOSE v \in LBs: \A v1 \in LBs: LEQ(v1, v) \* Does not work for convergent values (set, PSMR)
 
 \*@typeAlias: PRO = VALUE;
 \*@typeAlias: COMMITABLE_VALUE = Seq(VALUE);
@@ -118,12 +115,7 @@ ChooseValue(votes) ==
            \A m \in M: LEQ(v, m.bal.val)
       VO4 == {v \in V: O4(v)}
   IN 
-  IF \/ \E v \in VO4: \A v1 \in VO4: LEQ(v1, v)
-     \/ VO4 = {}
-  THEN  Merge(VO4, V)
-  ELSE /\ PrintVal("votes", votes)
-       /\ PrintVal("VO4", VO4)
-       /\ CHOOSE x \in votes: FALSE
+  Merge(VO4, V)
 
 Request(p) ==
   \/ /\ prop_balnum[p] = 0
@@ -135,7 +127,7 @@ Request(p) ==
      /\ b >= prop_balnum[p]
      /\ \E votes \in SUBSET {m \in msg.ack: m.balnum = b}:
         LET pv == ChooseValue(votes)
-            v == IF p \notin Range(pv) THEN pv \o << p >> ELSE pv
+            v == IF p \notin RangeS(pv) THEN pv \o << p >> ELSE pv
         IN
         \* valid votes
         /\ \E Q \in Quorums: \A a \in Q: \E m \in votes: m.src = a
@@ -190,7 +182,6 @@ Serialised ==
         /\ \E b \in UsedBallotNumbers: Committable(v2, b)
        ) => \/ LEQ(v1, v2)
             \/ LEQ(v2, v1)
-            \/ Print([v1 |-> v1, b1 |-> CHOOSE b \in UsedBallotNumbers: Committable(v1, b) ,v2 |-> v2, b2 |-> CHOOSE b \in UsedBallotNumbers: Committable(v2, b)  ], FALSE)
 
 Inv == Serialised
 
