@@ -1,16 +1,17 @@
 ----------------------------- MODULE Conspire -----------------------------
-\* This protocol is a collaborative variation of FastPaxos
-\* It ammends the last line of Figure 2 in Lamport's Fast Paxos paper
-\*   to such that it chooses the union of all proposed values in the previous round
-\* Supposing multiple proposers collide on the first round.
-\* Then you have at most one value per acceptor.
-\* Thus on round 2, O4 is false and we can choose any proposed value
-\* By choosing the union of rec values in phase 1 we collaborate between proposers
-\* Thus supposing each round the set of proposed values collides, then after 
-\*   |Acceptors| rounds the proposed value must include all initially proposed values
-\* Recovery is simply a node listing for the acks from the previous round
+(*
+This protocol is a collaborative variation of FastPaxos
+It allows multiple proposers to do the recovery after a conflict in FastPaxos
 
-\* Additionally this can be viewed as a piggybacked fast paxos variant
+Notable points 
+- Acceptors increment their term when they encounter a value which conflicts with their current value
+  - This generates the votes required to fully recover the current state
+  - It also means that the maximum round in a set of votes will either be the maximum round which exists or the one before it
+- Any proposer can send a write message, so long as it is greater than values in previous rounds
+
+- For efficiency we reduce our checks to just the values which are proposed, rather than the set of all possible values.
+
+*)
 
 EXTENDS Integers, FiniteSets, Sequences, TLC
 
@@ -103,18 +104,17 @@ ChooseValue(votes) ==
       V == {v \in UsedValues: \E e \in Vs: LEQ(v, e)} 
       O4(v) == 
       IF cbalnum > maxBalNum
-      THEN \* Then prev term is blocked, we take LUB
-           \* Exists a quorum which could have been used to commit it.
+      THEN \* Then prev term is blocked, 
+           \* we take GLB of values for which there exists a quorum which could have committed it
            \E Q \in Quorums:
            \A a \in Q:
-           \* acc vote for larger value
+           \* a voted for larger value
            \/ \E m \in M: /\ m.src = a 
                           /\ LEQ(v, m.bal.val)
-           \* acc did not vote
+           \* a did not vote
            \/ ~ \E m \in votes: m.src = a
       ELSE \* Current term can still make progress
-           \* Choose GLB
-           \* This can also be inferred using prev incremnet vote
+           \* Choose GLB of current values (inferring above case)
            \A m \in M: LEQ(v, m.bal.val)
       VO4 == {v \in V: O4(v)}
   IN 
@@ -184,9 +184,6 @@ Committable(v, b) ==
     /\ m.bal.num = b
     /\ LEQ(v, m.bal.val)
 
-CanCommit(v) ==
-  \E b \in UsedBallotNumbers: Committable(v,b)
-
 Serialised ==
   \A v1, v2 \in UsedValues:
     /\ (/\ \E b \in UsedBallotNumbers: Committable(v1, b)
@@ -195,15 +192,7 @@ Serialised ==
             \/ LEQ(v2, v1)
             \/ Print([v1 |-> v1, b1 |-> CHOOSE b \in UsedBallotNumbers: Committable(v1, b) ,v2 |-> v2, b2 |-> CHOOSE b \in UsedBallotNumbers: Committable(v2, b)  ], FALSE)
 
-Pipelined == FALSE
-
-CommitAll ==
-  \E V \in UsedValues:
-  /\ \A v \in PropValues: v \in Range(V)
-  /\ CanCommit(V)
-
-Inv ==
-  /\ Serialised
+Inv == Serialised
 
 BallotsBounded == \A p \in Proposers: prop_balnum[p] < BallotLimit
 
