@@ -19,9 +19,7 @@ CONSTANTS
   \* @type: Set(ACC);
   Acceptors, 
   \* @type: Set(VALUE);
-  PropValues,
-  \* @type: BALLOTNUMBER;
-  BallotLimit
+  PropValues
 
 VARIABLES 
   \* @type: ACC -> BALLOTNUMBER;
@@ -33,47 +31,41 @@ VARIABLES
   \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg
 
+\*@typeAlias: PRO = VALUE;
+\*@typeAlias: COMMITABLE_VALUE = Seq(VALUE);
+\*@typeAlias: BALLOTNUMBER = Int;
+\*@typeAlias: BALLOT = [num : BALLOTNUMBER, val : COMMITABLE_VALUE];
+\*@typeAlias: MREQ   = BALLOT;
+\*@typeAlias: MACK   = [src : ACC, bal : BALLOT, balnum : BALLOTNUMBER]; 
+
+\*====================
+\* Utility functions
+\*====================
+
 \* @type: (a -> x) => Set(x);
 Range(S) == {S[i] : i \in DOMAIN S}
 \* @type: Seq(x) => Set(x);
 RangeS(S) == {S[i] : i \in DOMAIN S}
 
 UsedValues ==
-  {m.bal.val: m \in msg.req} \union
+  {m.val: m \in msg.req} \union
   {m.bal.val: m \in msg.ack} \union
   {acc_maxVBal[a].val: a \in Acceptors}
    
 UsedBallotNumbers == 
-  {m.bal.num: m \in msg.req} \union
+  {m.num: m \in msg.req} \union
   {m.bal.num: m \in msg.ack} \union
   {m.balnum: m \in msg.ack} \union
   Range(prop_balnum) \union
   Range(acc_maxBal) \union
   {b.num : b \in Range(acc_maxVBal)}
 
-\*LEQ(A,B) == A \subseteq B
-
-LEQ(a,b) ==
-  /\ Len(a) =< Len(b)
-  /\ \A i \in DOMAIN a: a[i] = b[i]
-
-\* Must preserve: \A v \in LBs: v < RES
-\*Merge(LBs, Vs) == UNION LBs \union UNION Vs
-Merge(LBs, Vs) == 
-  IF LBs = {}
-  THEN CHOOSE v \in Vs: TRUE \* TODO fancy?
-  ELSE CHOOSE v \in LBs: \A v1 \in LBs: LEQ(v1, v) \* Does not work for convergent values (set, PSMR)
-
-\*@typeAlias: PRO = VALUE;
-\*@typeAlias: COMMITABLE_VALUE = Seq(VALUE);
-\*@typeAlias: BALLOTNUMBER = Int;
-\*@typeAlias: BALLOT = [num : BALLOTNUMBER, val : COMMITABLE_VALUE];
-\*@typeAlias: MREQ   = [src : PRO, bal : BALLOT];
-\*@typeAlias: MACK   = [src : ACC, bal : BALLOT, balnum : BALLOTNUMBER]; 
-
-vars == << acc_maxVBal, acc_maxBal, prop_balnum, msg >>
-
 Proposers == PropValues
+
+\*----------
+\* Spec utility funcs 
+\*----------
+vars == << acc_maxVBal, acc_maxBal, prop_balnum, msg >>
 
 \* This is the simple majority quorums approach
 \* Fast flexible paxos should be feasible
@@ -88,72 +80,77 @@ Init ==
   /\ prop_balnum   = [v \in Proposers |-> 0]
   /\ msg           = [req |-> {}, ack |-> {}]
 
-\* If vote for next term, then take greatest-lower-bound on values which could have been committed in this terms
-\* Otherwise choose GLB on all values from this term (since it'll be greater than any committed in previous terms)
-\* @type: Set(MACK) => COMMITABLE_VALUE;
-ChooseValue(votes) ==
-  LET cbalnum == CHOOSE b \in {m.balnum: m \in votes}: TRUE
-      balnums == {m.bal.num: m \in votes}
+\*====================
+\* Specialisation for logs
+\*====================
+LEQ(a,b) ==
+  /\ Len(a) =< Len(b)
+  /\ \A i \in DOMAIN a: a[i] = b[i]
+
+\*====================
+\* Node actions
+\*====================
+
+ReqInit(p) ==
+  /\ prop_balnum[p] = 0
+  /\ prop_balnum' = [prop_balnum EXCEPT ![p] = 1]
+  /\ SendReq([num |-> 0, val |-> <<p>>])
+  /\ UNCHANGED << acc_maxBal, acc_maxVBal >>
+
+\* @type: Set(MACK) => Set(COMMITABLE_VALUE);
+ChoosableValues(votes) ==
+  LET balnums == {m.bal.num: m \in votes}
       maxBalNum == CHOOSE b \in balnums: \A b1 \in balnums: b1 <= b
       M == {m\in votes: m.bal.num = maxBalNum}
-      Vs == {m.bal.val : m \in M}
-      \* Generate all possibly committed lower bounds
-      V == {v \in UsedValues: \E e \in Vs: LEQ(v, e)} 
+      \* there exists a quorum which could have committed v
       O4(v) == 
-      IF cbalnum > maxBalNum
-      THEN \* Then prev term is blocked, 
-           \* we take GLB of values for which there exists a quorum which could have committed it
-           \E Q \in Quorums:
-           \A a \in Q:
-           \* a voted for larger value
-           \/ \E m \in M: /\ m.src = a 
-                          /\ LEQ(v, m.bal.val)
-           \* a did not vote
-           \/ ~ \E m \in votes: m.src = a
-      ELSE \* Current term can still make progress
-           \* Choose GLB of current values (inferring above case)
-           \A m \in M: LEQ(v, m.bal.val)
-      VO4 == {v \in V: O4(v)}
+        \E Q \in Quorums:
+        \A a \in Q:
+        \* a voted for larger value
+        \/ \E m \in M: /\ m.src = a 
+                       /\ LEQ(v, m.bal.val)
+        \* a did not vote => we assume it voted for this one
+        \/ ~ \E m \in votes: m.src = a
+      UsedVals == {v \in UsedValues: \E m \in votes: LEQ(v, m.bal.val)}
   IN 
-  Merge(VO4, V)
+  {
+    v \in UsedVals: 
+    /\ \A l \in UsedVals: O4(l) => LEQ(l, v) \* correctness (if commit in prev term)
+    /\ \E m \in M:  LEQ(m.bal.val, v)          \* correctness (inductive)
+  }
 
 Request(p) ==
-  \/ /\ prop_balnum[p] = 0
-     /\ prop_balnum' = [prop_balnum EXCEPT ![p] = 1]
-     /\ SendReq([src |-> p, bal |-> [num |-> 0, val |-> <<p>>]])
-     /\ UNCHANGED << acc_maxBal, acc_maxVBal >>
-  \* Steady state
-  \/ \E b \in {m.balnum : m \in msg.ack}:
-     /\ b >= prop_balnum[p]
-     /\ \E votes \in SUBSET {m \in msg.ack: m.balnum = b}:
-        LET pv == ChooseValue(votes)
-            v == IF p \notin RangeS(pv) THEN pv \o << p >> ELSE pv
-        IN
-        \* valid votes
-        /\ \E Q \in Quorums: \A a \in Q: \E m \in votes: m.src = a
-        \* Update balnum and send req
+  \E b \in {m.balnum : m \in msg.ack}:
+  /\ b >= prop_balnum[p]
+  /\ \E votes \in SUBSET {m \in msg.ack: m.balnum = b}:
+     \* valid votes
+     /\ \E Q \in Quorums: \A a \in Q: \E m \in votes: m.src = a
+     \* choose value
+     /\ \E lb \in ChoosableValues(votes):
+        LET v == IF p \notin RangeS(lb) THEN lb \o << p >> ELSE lb IN
+        \* Update balnum and send req:
         /\ prop_balnum' = [prop_balnum EXCEPT ![p] = b]
-        /\ SendReq([src |-> p, bal |-> [val |-> v, num |-> b]])
+        /\ SendReq([val |-> v, num |-> b])
         /\ UNCHANGED << acc_maxBal, acc_maxVBal >>
 
 (* If conflict increment term, to allow non-conflict pipelining *)
 (* If old msg generate response for this term *)
 RecvReq(a) ==
   \E m \in msg.req:
-  LET newer_balnum == m.bal.num > acc_maxBal[a]
-      should_update == /\ m.bal.num >= acc_maxBal[a]
-                       /\ \/ m.bal.num > acc_maxVBal[a].num
-                          \/ m.bal.num = acc_maxVBal[a].num /\ LEQ(acc_maxVBal[a].val, m.bal.val)
-      must_increment == /\ m.bal.num = acc_maxBal[a]
-                        /\ m.bal.num = acc_maxVBal[a].num /\ ~LEQ(acc_maxVBal[a].val, m.bal.val)
+  LET newer_balnum == m.num > acc_maxBal[a]
+      should_update == /\ m.num >= acc_maxBal[a]
+                       /\ \/ m.num > acc_maxVBal[a].num
+                          \/ m.num = acc_maxVBal[a].num /\ LEQ(acc_maxVBal[a].val, m.val)
+      must_increment == /\ m.num = acc_maxBal[a]
+                        /\ m.num = acc_maxVBal[a].num /\ ~LEQ(acc_maxVBal[a].val, m.val)
       \* @type: BALLOTNUMBER;
       new_balnum == IF newer_balnum 
-                    THEN m.bal.num 
+                    THEN m.num 
                     ELSE IF must_increment
                          THEN acc_maxBal[a] + 1
                          ELSE acc_maxBal[a]
       \* @type: BALLOT;
-      new_vbal   == IF should_update THEN m.bal ELSE acc_maxVBal[a]
+      new_vbal   == IF should_update THEN m ELSE acc_maxVBal[a]
   IN 
   /\ acc_maxBal' = [acc_maxBal EXCEPT ![a] = new_balnum]
   /\ acc_maxVBal' = [acc_maxVBal EXCEPT ![a] = new_vbal]
@@ -161,7 +158,7 @@ RecvReq(a) ==
   /\ UNCHANGED << prop_balnum >>
 
 Next ==
-  \/ \E p \in Proposers: Request(p)
+  \/ \E p \in Proposers: ReqInit(p) \/ Request(p)
   \/ \E a \in Acceptors: RecvReq(a)
 
 Spec == /\ Init 
@@ -183,9 +180,15 @@ Serialised ==
        ) => \/ LEQ(v1, v2)
             \/ LEQ(v2, v1)
 
-Inv == Serialised
+T1 == /\ \E v \in UsedValues: \E b \in UsedBallotNumbers: /\ b >= 1
+                                                          /\ \A V \in PropValues: V \in Range(v)
+                                                          /\ Committable(v, 2)
 
-BallotsBounded == \A p \in Proposers: prop_balnum[p] < BallotLimit
+Inv == 
+ /\ Serialised 
+ /\ ~ T1
+ /\ ~ 3 \in UsedBallotNumbers
+ /\ ~ (\E v \in UsedValues: Committable(v, 2))
 
 Symmetry == Permutations(Proposers) \union Permutations(Acceptors)
 
