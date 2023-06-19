@@ -116,7 +116,7 @@ ChoosableValues(votes) ==
   {
     v \in UsedVals: 
     /\ \A l \in UsedVals: O4(l) => LEQ(l, v) \* correctness (if commit in prev term)
-    /\ \E m \in M:  LEQ(m.bal.val, v)          \* correctness (inductive)
+    /\ \E m \in M: LEQ(m.bal.val, v)         \* correctness (inductive)
   }
 
 Request(p) ==
@@ -180,15 +180,8 @@ Serialised ==
        ) => \/ LEQ(v1, v2)
             \/ LEQ(v2, v1)
 
-T1 == /\ \E v \in UsedValues: \E b \in UsedBallotNumbers: /\ b >= 1
-                                                          /\ \A V \in PropValues: V \in Range(v)
-                                                          /\ Committable(v, 2)
-
 Inv == 
  /\ Serialised 
- /\ ~ T1
- /\ ~ 3 \in UsedBallotNumbers
- /\ ~ (\E v \in UsedValues: Committable(v, 2))
 
 Symmetry == Permutations(Proposers) \union Permutations(Acceptors)
 
