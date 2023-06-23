@@ -28,7 +28,7 @@ VARIABLES
   acc_maxVBal,
   \* @type: PRO -> BALLOTNUMBER;
   prop_balnum,
-  \* @type: PRO -> VALUE;
+  \* @type: PRO -> COMMITABLE_VALUE;
   prop_val,
   \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg
@@ -71,7 +71,7 @@ vars == << acc_maxVBal, acc_maxBal, prop_balnum, prop_val, msg >>
 
 \* This is the simple majority quorums approach
 \* Fast flexible paxos should be feasible
-Quorums == {Q \in SUBSET Acceptors: Cardinality(Q) >= (2 * Cardinality(Acceptors)) \div 3 + 1}
+Quorums == {Q \in SUBSET Acceptors: Cardinality(Q) = (2 * Cardinality(Acceptors)) \div 3 + 1}
 
 SendReq(m) == m \notin msg.req /\ msg' = [msg EXCEPT !.req = msg.req \union {m}]
 SendAck(m) == m \notin msg.ack /\ msg' = [msg EXCEPT !.ack = msg.ack \union {m}]
@@ -79,7 +79,7 @@ SendAck(m) == m \notin msg.ack /\ msg' = [msg EXCEPT !.ack = msg.ack \union {m}]
 Init == 
   /\ acc_maxVBal   = [a \in Acceptors |-> [val |-> <<>>, num |-> -1]]
   /\ acc_maxBal    = [a \in Acceptors |-> 0]
-  /\ prop_balnum   = [v \in Proposers |-> 0]
+  /\ prop_balnum   = [v \in Proposers |-> -1]
   /\ prop_val      = [v \in Proposers |-> <<>>]
   /\ msg           = [req |-> {}, ack |-> {}]
 
@@ -95,8 +95,8 @@ LEQ(a,b) ==
 \*====================
 
 ReqInit(p) ==
-  /\ prop_balnum[p] = 0
-  /\ prop_balnum' = [prop_balnum EXCEPT ![p] = 1]
+  /\ prop_balnum[p] = -1
+  /\ prop_balnum' = [prop_balnum EXCEPT ![p] = 0]
   /\ prop_val' = [prop_val EXCEPT ![p] = <<p>>]
   /\ SendReq([num |-> 0, val |-> <<p>>])
   /\ UNCHANGED << acc_maxBal, acc_maxVBal >>
@@ -163,13 +163,6 @@ RecvReq(a) ==
   /\ SendAck([src |-> a, balnum |-> new_balnum, bal |-> new_vbal])
   /\ UNCHANGED << prop_balnum, prop_val >>
 
-Next ==
-  \/ \E p \in Proposers: ReqInit(p) \/ Request(p)
-  \/ \E a \in Acceptors: RecvReq(a)
-
-Spec == /\ Init 
-        /\ [][Next]_vars 
-
 \* A ballot can be committed in b if there exists a quorum of responses for larger values
 \* This can be extended to the consecutive ballots thingy-mabob
 Committable(v, b) ==
@@ -178,6 +171,15 @@ Committable(v, b) ==
     /\ m.src = a
     /\ m.bal.num = b
     /\ LEQ(v, m.bal.val)
+
+Next ==
+  \/ \E p \in Proposers: ReqInit(p) \/ Request(p)
+  \/ \E a \in Acceptors: RecvReq(a)
+  \/ /\ \E v \in UsedValues: RangeS(v) = PropValues /\ \E b \in UsedBallotNumbers: Committable(v,b)
+     /\ UNCHANGED <<vars>>
+
+Spec == /\ Init 
+        /\ [][Next]_vars 
 
 Serialised ==
   \A v1, v2 \in UsedValues:
