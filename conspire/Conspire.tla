@@ -28,6 +28,8 @@ VARIABLES
   acc_maxVBal,
   \* @type: PRO -> BALLOTNUMBER;
   prop_balnum,
+  \* @type: PRO -> VALUE;
+  prop_val,
   \* @type: [req: Set(MREQ), rec: Set(MREC), ack: Set(MACK)];
   msg
 
@@ -69,15 +71,16 @@ vars == << acc_maxVBal, acc_maxBal, prop_balnum, msg >>
 
 \* This is the simple majority quorums approach
 \* Fast flexible paxos should be feasible
-Quorums == {Q \in SUBSET Acceptors: Cardinality(Q) = (2 * Cardinality(Acceptors)) \div 3 + 1}
+Quorums == {Q \in SUBSET Acceptors: Cardinality(Q) >= (2 * Cardinality(Acceptors)) \div 3 + 1}
 
-SendReq(m) == msg' = [msg EXCEPT !.req = msg.req \union {m}]
-SendAck(m) == msg' = [msg EXCEPT !.ack = msg.ack \union {m}]
+SendReq(m) == m \notin msg.req /\ msg' = [msg EXCEPT !.req = msg.req \union {m}]
+SendAck(m) == m \notin msg.ack /\ msg' = [msg EXCEPT !.ack = msg.ack \union {m}]
 
 Init == 
   /\ acc_maxVBal   = [a \in Acceptors |-> [val |-> <<>>, num |-> -1]]
   /\ acc_maxBal    = [a \in Acceptors |-> 0]
   /\ prop_balnum   = [v \in Proposers |-> 0]
+  /\ prop_val      = [v \in Proposers |-> <<>>]
   /\ msg           = [req |-> {}, ack |-> {}]
 
 \*====================
@@ -94,6 +97,7 @@ LEQ(a,b) ==
 ReqInit(p) ==
   /\ prop_balnum[p] = 0
   /\ prop_balnum' = [prop_balnum EXCEPT ![p] = 1]
+  /\ prop_val' = [prop_val EXCEPT ![p] = <<p>>]
   /\ SendReq([num |-> 0, val |-> <<p>>])
   /\ UNCHANGED << acc_maxBal, acc_maxVBal >>
 
@@ -129,6 +133,8 @@ Request(p) ==
      /\ \E lb \in ChoosableValues(votes):
         LET v == IF p \notin RangeS(lb) THEN lb \o << p >> ELSE lb IN
         \* Update balnum and send req:
+        /\ b = prop_balnum[p] => LEQ(prop_val[p], v)
+        /\ prop_val' = [prop_val EXCEPT ![p] = v]
         /\ prop_balnum' = [prop_balnum EXCEPT ![p] = b]
         /\ SendReq([val |-> v, num |-> b])
         /\ UNCHANGED << acc_maxBal, acc_maxVBal >>
@@ -155,7 +161,7 @@ RecvReq(a) ==
   /\ acc_maxBal' = [acc_maxBal EXCEPT ![a] = new_balnum]
   /\ acc_maxVBal' = [acc_maxVBal EXCEPT ![a] = new_vbal]
   /\ SendAck([src |-> a, balnum |-> new_balnum, bal |-> new_vbal])
-  /\ UNCHANGED << prop_balnum >>
+  /\ UNCHANGED << prop_balnum, prop_val >>
 
 Next ==
   \/ \E p \in Proposers: ReqInit(p) \/ Request(p)
