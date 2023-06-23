@@ -67,7 +67,7 @@ Proposers == PropValues
 \*----------
 \* Spec utility funcs 
 \*----------
-vars == << acc_maxVBal, acc_maxBal, prop_balnum, msg >>
+vars == << acc_maxVBal, acc_maxBal, prop_balnum, prop_val, msg >>
 
 \* This is the simple majority quorums approach
 \* Fast flexible paxos should be feasible
