@@ -122,11 +122,14 @@ ChoosableValues(votes) ==
     /\ \A l \in UsedVals: O4(l) => LEQ(l, v) \* correctness (if commit in prev term)
     /\ \E m \in M: LEQ(m.bal.val, v)         \* correctness (inductive)
   }
-
+ 
 Request(p) ==
   \E b \in {m.balnum : m \in msg.ack}:
   /\ b >= prop_balnum[p]
-  /\ \E votes \in SUBSET {m \in msg.ack: m.balnum = b}:
+  /\ \E votes \in {M \in SUBSET {m \in msg.ack: m.balnum = b}: 
+                    \A a \in Acceptors: \A m1, m2 \in {m \in M: m.src = a}: m1 = m2
+                    }:
+     /\ \A a \in Acceptors: Cardinality({m \in votes: m.src = a}) = 1 \* efficiency
      \* valid votes
      /\ \E Q \in Quorums: \A a \in Q: \E m \in votes: m.src = a
      \* choose value
@@ -175,8 +178,8 @@ Committable(v, b) ==
 Next ==
   \/ \E p \in Proposers: ReqInit(p) \/ Request(p)
   \/ \E a \in Acceptors: RecvReq(a)
-  \/ /\ \E v \in UsedValues: RangeS(v) = PropValues /\ \E b \in UsedBallotNumbers: Committable(v,b)
-     /\ UNCHANGED <<vars>>
+\*  \/ /\ \E v \in UsedValues: RangeS(v) = PropValues /\ \E b \in UsedBallotNumbers: Committable(v,b)
+\*     /\ UNCHANGED <<vars>>
 
 Spec == /\ Init 
         /\ [][Next]_vars 
