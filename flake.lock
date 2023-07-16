@@ -16,6 +16,7 @@
         "type": "github"
       }
     },
+
     "flake-utils": {
       "locked": {
         "lastModified": 1652776076,
@@ -38,6 +39,7 @@
         "owner": "nixos",
         "repo": "nixpkgs",
         "rev": "af02d617c737c385aad1789d0de1d9e6a4e608e7",
+
         "type": "github"
       },
       "original": {
@@ -67,6 +69,7 @@
         "owner": "zaninime",
         "repo": "sbt-derivation",
         "type": "github"
+
       }
     }
   },
