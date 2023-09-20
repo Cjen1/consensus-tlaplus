@@ -1,22 +1,20 @@
----- MODULE ConspireBase ----
+---- MODULE ConspireAbstractLog ----
 
-EXTENDS FiniteSets, Integers
+EXTENDS FiniteSets, Integers, Sequences
 
 \* @typeAlias: nid = Str;
 \* @typeAlias: value = Str;
 \* @typeAlias: term = Int;
-\* @typeAlias: reqMsg = {term : $term, val : $value};
+\* @typeAlias: reqMsg = {term : $term, val : Seq($value)};
 \* @typeAlias: repMsg = {src : $nid, state : $state};
-\* @typeAlias: state = {term : $term, vterm : $term, vval : $value};
+\* @typeAlias: state = {term : $term, vterm : $term, vval : Seq($value)};
 CONSPIRE_BASE_ALIAS == TRUE
 
 CONSTANTS
   \* @type: Set($nid);
   Nodes,
   \* @type: Set($value);
-  Values,
-  \* @type: $value;
-  None
+  Values
 
 VARIABLES
   \* @type: $nid -> $state;
@@ -25,8 +23,6 @@ VARIABLES
   req_msgs,
   \* @type: Set($repMsg);
   rep_msgs
-
-ASSUME ~None \in Values
 
 Quorums == {Q \in SUBSET Nodes: Cardinality(Q) = (2 * Cardinality(Nodes)) \div 3 + 1}
 
@@ -42,12 +38,21 @@ UsedTerms ==
          {{m.term}: m \in req_msgs} \union
          {{m.state.term, m.state.vterm}: m \in rep_msgs})
 
+\* @type: (Seq(x), Seq(x)) => Bool;
+Leq(a,b) ==
+  /\ Len(a) <= Len(b)
+  /\ \A k \in DOMAIN a: a[k] = b[k]
+
+\* @type: Seq(x) => Set(Seq(x));
+Prefixes(S) ==
+  {SubSeq(S, 1, l): l \in 0..Len(S)}
+
 \*====================
 \* Main functions
 \*====================
 
 Init ==
-  /\ local_states = [n \in Nodes |-> [term |-> 0, vterm |-> -1, vval |-> None]]
+  /\ local_states = [n \in Nodes |-> [term |-> 0, vterm |-> -1, vval |-> <<>>]]
   /\ req_msgs = {[term |-> 0, val |-> v] : v \in Values}
   /\ rep_msgs = {}
 
@@ -55,7 +60,7 @@ Reply(n) ==
   \E m \in req_msgs:
   /\ m.term >= local_states[n].term
   /\ \/ m.term > local_states[n].vterm  
-     \/ m.term = local_states[n].vterm /\ local_states[n].vval = None
+     \/ m.term = local_states[n].vterm /\ Leq(local_states[n].vval, m.val)
   /\ LET new_state == [term |-> m.term, vterm |-> m.term, vval |-> m.val] IN
      /\ local_states' = [local_states EXCEPT ![n] = new_state]
      /\ Send(n, new_state)
@@ -83,22 +88,25 @@ Propose ==
            \* Voted for v
            \/ \E m \in max_vterm_msgs: 
               /\ m.src = n
-              /\ m.state.vval = v
+              /\ Leq(v, m.state.vval)
            \* Did not vote
            \/ ~\E m \in S: m.src = n
          max_vterm_vals == {m.state.vval : m \in max_vterm_msgs}
-         ChoosableVals == {v \in max_vterm_vals: PossiblyCommittable(v)}
+         ChoosableVals == {v \in UNION {Prefixes(v) : v \in max_vterm_vals}: PossiblyCommittable(v)}
      IN
      /\ \A n \in Qr: \E m \in S: m.src = n
-     /\ \E v \in Values:
-        LET msg == [term |-> t, val |-> v] IN
+     /\ \E lb \in max_vterm_vals:
         \* Inductive base case
-        /\ \A lb \in ChoosableVals: lb = None \/ lb = v
+        /\ \A olb \in ChoosableVals: Leq(olb, lb)
         \* Inductive case
-        /\ \E lb \in max_vterm_vals: lb = v
-        /\ ~ msg \in req_msgs
-        /\ req_msgs' = req_msgs \union {msg}
-        /\ UNCHANGED << local_states, rep_msgs >>
+        /\ \E olb \in max_vterm_vals: Leq(olb, lb)
+        /\ \E prop_v \in Values:
+           LET v == lb \o <<v>>
+               msg == [term |-> t, val |-> v] 
+           IN
+           /\ ~ msg \in req_msgs
+           /\ req_msgs' = req_msgs \union {msg}
+           /\ UNCHANGED << local_states, rep_msgs >>
         
 Next ==
   \/ Propose
@@ -117,10 +125,14 @@ Committable(t,v) ==
   \E m \in rep_msgs:
   /\ m.src = n
   /\ m.state.vterm = t
-  /\ m.state.vval = v
+  /\ Leq(v, m.state.vval)
+
+\* @type: Set(Seq($value));
+UsedValues == {m.val: m \in req_msgs} \union {m.state.vval: m \in rep_msgs} \union {local_states[n].vval : n \in DOMAIN local_states}
+
 
 Safety ==
-  LET CanCommit == {v \in Values: \E t \in UsedTerms: Committable(t,v)} IN
-  \A v1, v2 \in CanCommit: v1 = v2
+  LET CanCommit == {v \in UsedValues: \E t \in UsedTerms: Committable(t,v)} IN
+  \A v1, v2 \in CanCommit: Leq(v1, v2) \/ Leq(v2, v1)
 
 ====

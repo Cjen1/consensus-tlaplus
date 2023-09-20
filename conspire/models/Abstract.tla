@@ -1,4 +1,4 @@
----- MODULE ConspireSingleShotApa ----
+---- MODULE ConspireBaseApa ----
 
 EXTENDS Apalache, ConspireBase
 

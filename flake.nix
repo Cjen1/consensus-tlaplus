@@ -27,7 +27,7 @@
   in {
     devShell = pkgs.mkShell {
       buildInputs = [
-        #pkgs.tlaplus
+        pkgs.tlaplus
         apalache
       ];
     };
