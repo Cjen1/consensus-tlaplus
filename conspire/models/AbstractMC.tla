@@ -1,6 +1,6 @@
----- MODULE ConspireBaseApa ----
+---- MODULE AbstractMC ----
 
-EXTENDS Apalache, ConspireBase
+EXTENDS Apalache, Abstract
 
 CInit ==
   /\ Nodes := {"a1", "a2", "a3", "a4"}

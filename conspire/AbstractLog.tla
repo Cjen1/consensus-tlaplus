@@ -1,4 +1,4 @@
----- MODULE ConspireAbstractLog ----
+---- MODULE AbstractLog ----
 
 EXTENDS FiniteSets, Integers, Sequences
 
@@ -8,7 +8,7 @@ EXTENDS FiniteSets, Integers, Sequences
 \* @typeAlias: reqMsg = {term : $term, val : Seq($value)};
 \* @typeAlias: repMsg = {src : $nid, state : $state};
 \* @typeAlias: state = {term : $term, vterm : $term, vval : Seq($value)};
-CONSPIRE_BASE_ALIAS == TRUE
+CONSPIRE_LOG_ALIAS == TRUE
 
 CONSTANTS
   \* @type: Set($nid);
@@ -53,7 +53,7 @@ Prefixes(S) ==
 
 Init ==
   /\ local_states = [n \in Nodes |-> [term |-> 0, vterm |-> -1, vval |-> <<>>]]
-  /\ req_msgs = {[term |-> 0, val |-> v] : v \in Values}
+  /\ req_msgs = {[term |-> 0, val |-> <<v>>] : v \in Values}
   /\ rep_msgs = {}
 
 Reply(n) ==
@@ -81,7 +81,7 @@ Propose ==
                             /\ m.src \in Qr}:
      LET max_vterm == (CHOOSE m \in S: \A m1 \in S: m1.state.vterm <= m.state.vterm).state.vterm
          max_vterm_msgs == {m \in S: m.state.vterm = max_vterm}
-         \* @type: ($value) => Bool;
+         \* @type: (Seq($value)) => Bool;
          PossiblyCommittable(v) ==
            \E Qw \in Quorums:
            \A n \in Qw:
@@ -92,7 +92,7 @@ Propose ==
            \* Did not vote
            \/ ~\E m \in S: m.src = n
          max_vterm_vals == {m.state.vval : m \in max_vterm_msgs}
-         ChoosableVals == {v \in UNION {Prefixes(v) : v \in max_vterm_vals}: PossiblyCommittable(v)}
+         ChoosableVals == {}\*{v \in UNION {Prefixes(v) : v \in max_vterm_vals}: PossiblyCommittable(v)}
      IN
      /\ \A n \in Qr: \E m \in S: m.src = n
      /\ \E lb \in max_vterm_vals:
@@ -101,7 +101,7 @@ Propose ==
         \* Inductive case
         /\ \E olb \in max_vterm_vals: Leq(olb, lb)
         /\ \E prop_v \in Values:
-           LET v == lb \o <<v>>
+           LET v == lb \o <<prop_v>>
                msg == [term |-> t, val |-> v] 
            IN
            /\ ~ msg \in req_msgs
@@ -118,7 +118,7 @@ Spec == Init /\ [][Next]_<<local_states, req_msgs, rep_msgs>>
 \* Invariants
 \*====================
 
-\* @type: ($term, $value) => Bool;
+\* @type: ($term, Seq($value)) => Bool;
 Committable(t,v) ==
   \E Q \in Quorums:
   \A n \in Q:
