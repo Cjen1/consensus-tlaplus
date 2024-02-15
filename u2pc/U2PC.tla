@@ -186,5 +186,6 @@ Serialisability(C) ==
         (t1 /= t2 /\ Txns[t1] \cap Txns[t2] /= {}) => <<t1, t2>> \in R \/ <<t2, t1>> \in R
 
 CommittedTIDs == {t \in TIDs: Coordinator_state[t] = "Commit"}
+AbortedTIDs == {t \in TIDs: Coordinator_state[t] = "Abort"}
 
 ====
