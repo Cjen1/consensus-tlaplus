@@ -9,8 +9,14 @@ T1 == SetAsFun({Pair("T1", {"X"})})
 T1_2 == SetAsFun({Pair("T1", {"X"}), Pair("T2", {"X"})})
 S1 == SetAsFun({Pair("X", {"X1", "X2"})})
 
-T3 == SetAsFun({Pair("T1", {"X", "Y"}), Pair("T2", {"Y","Z"}), Pair("T3", {"Z", "X"})})
-S3 == SetAsFun({Pair("X", {"X1", "X2"}), Pair("Y", {"Y1", "Y2"}), Pair("Z", {"Z1", "Z2"})})
+T3 == SetAsFun({
+  Pair("T1", {"X", "Y"}),
+  Pair("T2", {"Y","Z"}), 
+  Pair("T3", {"Z", "X"})})
+S3 == SetAsFun({
+  Pair("X", {"X1", "X2"}), 
+  Pair("Y", {"Y1", "Y2"}), 
+  Pair("Z", {"Z1", "Z2"})})
 
 
 CInit ==
