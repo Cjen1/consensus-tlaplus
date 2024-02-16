@@ -111,13 +111,13 @@ CoordinatorRead(t) ==
            (CHOOSE m \in M_read_resp : m.dst = t /\ m.src = F[k]).ver
          ]]
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "Lock"]
-  /\ UNCHANGED << Replicas, Msgs, Linearisability_rt >>
+  /\ UNCHANGED << Replicas, Var_Msgs, Linearisability_rt >>
 
 CoordinatorLock(t) ==
   /\ Coordinator_state[t] = "Lock"
   /\ M_lock' = M_lock \cup 
        {[tid |-> t, txn |-> Txns[t], state |-> Coordinator_txn_state[t]]}
-  /\ UNCHANGED << M_lock_resp, Var_M_read, Var_M_lock >>
+  /\ UNCHANGED << M_lock_resp, Var_M_read, Var_M_unlock >>
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "Decide"]
   /\ UNCHANGED <<Coordinator_txn_state, Replicas, Linearisability_rt>>
 
@@ -177,7 +177,7 @@ CoordinatorAbort(t) ==
      \/ \E m \in M_unlock_resp: m.src = r /\ m.tid = t
      \/ \E m \in M_lock_resp: m.src = r /\ m.dst = t /\ ~m.locked
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "Abort"]
-  /\ UNCHANGED << Replicas, Msgs, Coordinator_txn_state, Linearisability_rt>>
+  /\ UNCHANGED << Replicas, Var_Msgs, Coordinator_txn_state, Linearisability_rt>>
 
 
 Next ==
