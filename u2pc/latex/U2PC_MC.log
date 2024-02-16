@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=latex 2023.6.14)  16 FEB 2024 14:13
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=latex 2023.6.14)  16 FEB 2024 14:35
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -22,28 +22,105 @@ File: size10.clo 2021/10/04 v1.4n Standard LaTeX file (size option)
 \abovecaptionskip=\skip47
 \belowcaptionskip=\skip48
 \bibindent=\dimen138
+) (/usr/share/texlive/texmf-dist/tex/latex/base/latexsym.sty
+Package: latexsym 1998/08/17 v2.2e Standard LaTeX package (lasy symbols)
+\symlasy=\mathgroup4
+LaTeX Font Info:    Overwriting symbol font `lasy' in version `bold'
+(Font)                  U/lasy/m/n --> U/lasy/b/n on input line 52.
+) (/usr/share/texlive/texmf-dist/tex/latex/base/ifthen.sty
+Package: ifthen 2020/11/24 v1.1c Standard LaTeX ifthen package (DPC)
 )
+\symlength=\skip49
+\equalswidth=\skip50
+\charwidth=\skip51
+\boxrulewd=\skip52
+\boxlineht=\skip53
+\boxruleht=\skip54
+\boxruledp=\skip55
+\pcalvspace=\skip56
+\lcomindent=\skip57
+\@xlen=\skip58
+\templena=\skip59
+\templenb=\skip60
+\tempboxa=\box50
+\vshadelen=\skip61
+\boxwidth=\skip62
+\multicommentdepth=\skip63
+\c@pardepth=\count193
+\tempsbox=\box51
+\@cparht=\skip64
+\@cpardp=\skip65
+\xmcomlen=\skip66
+\spacewidth=\skip67
+\alignboxwidth=\skip68
+\alignwidth=\skip69
+\alignbox=\box52
+\symtlaitalics=\mathgroup5
+\c@tlx@ctr=\count194
+(/usr/share/texlive/texmf-dist/tex/latex/tools/verbatim.sty
+Package: verbatim 2020-07-07 v1.5u LaTeX2e package for verbatim enhancements
+\every@verbatim=\toks16
+\verbatim@line=\toks17
+\verbatim@in@stream=\read2
+) (/usr/share/texlive/texmf-dist/tex/latex/l3backend/l3backend-dvips.def
+File: l3backend-dvips.def 2022-01-12 L3 backend support: dvips
+\l__pdf_internal_box=\box53
+\g__pdf_backend_object_int=\count195
+\l__pdf_backend_content_box=\box54
+\l__pdf_backend_model_box=\box55
+\g__pdf_backend_annotation_int=\count196
+\g__pdf_backend_link_int=\count197
+\g__pdf_backend_link_sf_int=\count198
+) (./U2PC_MC.aux)
+\openout1 = `U2PC_MC.aux'.
 
-! LaTeX Error: File `tlatex.sty' not found.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 937.
+LaTeX Font Info:    ... okay on input line 937.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 937.
+LaTeX Font Info:    ... okay on input line 937.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 937.
+LaTeX Font Info:    ... okay on input line 937.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 937.
+LaTeX Font Info:    ... okay on input line 937.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 937.
+LaTeX Font Info:    ... okay on input line 937.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 937.
+LaTeX Font Info:    ... okay on input line 937.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 937.
+LaTeX Font Info:    ... okay on input line 937.
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <7> on input line 939.
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <5> on input line 939.
+LaTeX Font Info:    Trying to load font information for U+lasy on input line 93
+9.
+(/usr/share/texlive/texmf-dist/tex/latex/base/ulasy.fd
+File: ulasy.fd 1998/08/17 v2.2e LaTeX symbol font definitions
+)
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <8> on input line 947.
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <6> on input line 947.
 
-Type X to quit or <RETURN> to proceed,
-or enter new name. (Default extension: sty)
+Overfull \hbox (60.02596pt too wide) in paragraph at lines 959--962
+[][] 
+ []
 
-Enter file name: 
-! Emergency stop.
-<read *> 
-         
-l.6 \begin
-          {document}^^M
-*** (cannot \read from terminal in nonstop modes)
 
- 
+Overfull \hbox (74.04715pt too wide) in paragraph at lines 962--963
+[][] 
+ []
+
+[1
+
+] [2] (./U2PC_MC.aux) ) 
 Here is how much of TeX's memory you used:
- 233 strings out of 480248
- 2948 string characters out of 5896177
- 286576 words of memory out of 5000000
- 18267 multiletter control sequences out of 15000+600000
- 469259 words of font info for 28 fonts, out of 8000000 for 9000
+ 819 strings out of 480248
+ 12755 string characters out of 5896177
+ 327830 words of memory out of 5000000
+ 18815 multiletter control sequences out of 15000+600000
+ 474429 words of font info for 48 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
- 34i,0n,38p,155b,36s stack positions out of 5000i,500n,10000p,200000b,80000s
-No pages of output.
+ 34i,10n,38p,220b,113s stack positions out of 5000i,500n,10000p,200000b,80000s
+
+Output written on U2PC_MC.dvi (2 pages, 5748 bytes).
