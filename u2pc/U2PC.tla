@@ -43,7 +43,9 @@ VARIABLES
   \* @type: Set({src : $tid, apply : Bool});
   M_unlock,
   \* @type: Set({src : $rid, tid : $tid});
-  M_unlock_resp
+  M_unlock_resp,
+  \* @type: $tid -> Set($tid);
+  Linearisability_rt
 
 Msgs == <<M_read, M_read_resp, M_lock, M_lock_resp, M_unlock, M_unlock_resp>>
 
@@ -63,6 +65,7 @@ Init ==
   /\ M_read = {} /\ M_read_resp = {}
   /\ M_lock = {} /\ M_lock_resp = {}
   /\ M_unlock = {} /\ M_unlock_resp = {}
+  /\ Linearisability_rt = [t \in TIDs |-> {}]
 
 RelevantReplicas(t) == UNION {Shards[k]: k \in Txns[t]}
 
@@ -72,6 +75,8 @@ CoordinatorStart(t) ==
   /\ UNCHANGED << M_read_resp, M_lock, M_lock_resp, M_unlock, M_unlock_resp >>
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "Read"]
   /\ UNCHANGED <<Coordinator_txn_state, Replicas>>
+  /\ Linearisability_rt' = [Linearisability_rt EXCEPT ![t] = 
+      {t1 \in TIDs : Coordinator_state[t1] = "Commit"}]
 
 ReplicaRead(r) ==
   /\ Replicas[r].locked = FALSE
@@ -79,7 +84,7 @@ ReplicaRead(r) ==
      /\ ~\E m1 \in M_read_resp: m1.src = r /\ m1.dst = m.src
      /\ M_read_resp' = M_read_resp \cup {[src |-> r, dst |-> m.src, ver |-> Replicas[r].version]}
      /\ UNCHANGED << M_read, M_lock, M_lock_resp, M_unlock, M_unlock_resp>>
-  /\ UNCHANGED << Replicas, Coordinator_state, Coordinator_txn_state >>
+  /\ UNCHANGED << Replicas, Coordinator_state, Coordinator_txn_state, Linearisability_rt>>
 
 CoordinatorRead(t) ==
   /\ Coordinator_state[t] = "Read"
@@ -91,14 +96,14 @@ CoordinatorRead(t) ==
          k \in Txns[t] |-> (CHOOSE m \in M_read_resp : m.dst = t /\ m.src = F[k]).ver
          ]]
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "Lock"]
-  /\ UNCHANGED << Replicas, Msgs >>
+  /\ UNCHANGED << Replicas, Msgs, Linearisability_rt >>
 
 CoordinatorLock(t) ==
   /\ Coordinator_state[t] = "Lock"
   /\ M_lock' = M_lock \cup {[tid |-> t, txn |-> Txns[t], state |-> Coordinator_txn_state[t]]}
   /\ UNCHANGED << M_read, M_read_resp, M_lock_resp, M_unlock, M_unlock_resp >>
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "Decide"]
-  /\ UNCHANGED <<Coordinator_txn_state, Replicas>>
+  /\ UNCHANGED <<Coordinator_txn_state, Replicas, Linearisability_rt>>
 
 ReplicaLock(r) ==
   /\ \E m \in M_lock:
@@ -113,7 +118,7 @@ ReplicaLock(r) ==
           /\ M_lock_resp' = M_lock_resp \cup {[src |-> r, dst |-> m.tid, locked |-> FALSE]}
           /\ UNCHANGED Replicas
   /\ UNCHANGED << M_read, M_read_resp, M_lock, M_unlock, M_unlock_resp >>
-  /\ UNCHANGED << Coordinator_state, Coordinator_txn_state >>
+  /\ UNCHANGED << Coordinator_state, Coordinator_txn_state, Linearisability_rt>>
 
 CoordinatorCommit(t) ==
   /\ Coordinator_state[t] = "Decide"
@@ -123,7 +128,7 @@ CoordinatorCommit(t) ==
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "Commit"]
   /\ M_unlock' = M_unlock \cup {[src |-> t, apply |-> TRUE]}
   /\ UNCHANGED << M_read, M_read_resp, M_lock, M_lock_resp, M_unlock_resp >>
-  /\ UNCHANGED << Replicas, Coordinator_txn_state >>
+  /\ UNCHANGED << Replicas, Coordinator_txn_state, Linearisability_rt>>
 
 CoordinatorStartAbort(t) ==
   /\ Coordinator_state[t] = "Decide"
@@ -133,7 +138,7 @@ CoordinatorStartAbort(t) ==
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "TryAbort"]
   /\ M_unlock' = M_unlock \cup {[src |-> t, apply |-> FALSE]}
   /\ UNCHANGED << M_read, M_read_resp, M_lock, M_lock_resp, M_unlock_resp >>
-  /\ UNCHANGED << Replicas, Coordinator_txn_state >>
+  /\ UNCHANGED << Replicas, Coordinator_txn_state, Linearisability_rt>>
 
 ReplicaUnlock(r) ==
   \E m \in M_unlock:
@@ -146,7 +151,7 @@ ReplicaUnlock(r) ==
            locked |-> FALSE, version |-> Replicas[r].version, logged |-> "NULL"]]
   /\ M_unlock_resp' = M_unlock_resp \cup {[src |-> r, tid |-> Replicas[r].logged]}
   /\ UNCHANGED << M_read, M_read_resp, M_lock, M_lock_resp, M_unlock>>
-  /\ UNCHANGED << Coordinator_state, Coordinator_txn_state >>
+  /\ UNCHANGED << Coordinator_state, Coordinator_txn_state, Linearisability_rt>>
 
 CoordinatorAbort(t) ==
   /\ Coordinator_state[t] = "TryAbort"
@@ -154,7 +159,7 @@ CoordinatorAbort(t) ==
      \/ \E m \in M_unlock_resp: m.src = r /\ m.tid = t
      \/ \E m \in M_lock_resp: m.src = r /\ m.dst = t /\ ~m.locked
   /\ Coordinator_state' = [Coordinator_state EXCEPT ![t] = "Abort"]
-  /\ UNCHANGED << Replicas, Msgs, Coordinator_txn_state >>
+  /\ UNCHANGED << Replicas, Msgs, Coordinator_txn_state, Linearisability_rt>>
 
 
 Next ==
@@ -168,7 +173,7 @@ Next ==
                     \/ CoordinatorStartAbort(t)
                     \/ CoordinatorAbort(t)
 
-Spec == Init /\ [][Next]_<< Replicas, Coordinator_state, Coordinator_txn_state, Msgs >>
+Spec == Init /\ [][Next]_<< Replicas, Coordinator_state, Coordinator_txn_state, Msgs, Linearisability_rt>>
 
 Serialisability(C) == 
   \/ Cardinality(C) < 2
@@ -184,8 +189,12 @@ Serialisability(C) ==
      \* If two transactions interfere, there is an order
      /\ \A t1, t2 \in C:
         (t1 /= t2 /\ Txns[t1] \cap Txns[t2] /= {}) => <<t1, t2>> \in R \/ <<t2, t1>> \in R
+     \* Strict serialisability / Linearisability check
+     /\ \A t1, t2 \in C:
+        (t1 \in Linearisability_rt[t2]) => <<t1, t2>> \in R
 
 CommittedTIDs == {t \in TIDs: Coordinator_state[t] = "Commit"}
 AbortedTIDs == {t \in TIDs: Coordinator_state[t] = "Abort"}
 
+Safety_non_recovery == Serialisability(CommittedTIDs)
 ====

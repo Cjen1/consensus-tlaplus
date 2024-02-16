@@ -17,8 +17,6 @@ CInit ==
   /\ Txns := T3
   /\ Shards := S3
 
-Safety_non_recovery == Serialisability(CommittedTIDs)
-
 TransitiveClosure(R) ==
   LET S == {r[1] : r \in R} \cup {r[2] : r \in R}
       RECURSIVE TCR(_)
@@ -47,7 +45,7 @@ RecoveryCommitted(S) ==
 Safety_recovery ==
   \A S \in SUBSET RIDs:
   \* Valid recovery
-  \A k \in DOMAIN Shards: \E r \in S: r \in Shards[k] 
+  (\A k \in DOMAIN Shards: \E r \in S: r \in Shards[k])
   =>
   IF Serialisability(CommittedTIDs \cup RecoveryCommitted(S))
   THEN TRUE
@@ -70,11 +68,7 @@ Durability ==
   /\ t \in AbortedTIDs => t \in RecoveryAborted(S)
 
 Invs ==
-  \*/\ Safety_recovery
+  /\ Safety_recovery
   /\ Durability
-  \*/\ ~\E t \in TIDs: Coordinator_state[t] = "Lock"
-  \*/\ ~\E t \in TIDs: Coordinator_state[t] = "Commit"
-  \*/\ ~\E r \in RIDs: Replicas[r].version = "T2"
-  /\ TRUE
 
 ====
