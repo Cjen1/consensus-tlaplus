@@ -1,4 +1,14 @@
 ---- MODULE U2PC ----
+
+\********************
+\* This models a a deployment of U2PC with a reliable network (eventual and non-corrupt delivery).
+\*
+\* Crash faults are not explicitly modelled, instead relying on asynchrony (both in nodes and the network)
+\* to provide equivalent executions.
+\* Thus an execution where a replica crashes is equivalent to one where that replica takes no further action.
+\*
+\********************
+
 EXTENDS FiniteSets, Integers, Apalache, TLC
 
 \* @typeAlias: key = Str;
@@ -15,8 +25,15 @@ CONSTANTS
   \* @type: $tid -> $txn;
   Txns
 
-ASSUME \A k1, k2 \in DOMAIN Shards: k1 /= k2 => Shards[k1] \cap Shards[k2] = {}
 ASSUME "Init" \notin DOMAIN Txns
+
+\********************
+\* Replicas are unique across shards.
+\*
+\* In full implementations, if a server is a replica for multiple shards, 
+\* it must have separate state for each shard.
+\********************
+ASSUME \A k1, k2 \in DOMAIN Shards: k1 /= k2 => Shards[k1] \cap Shards[k2] = {}
 
 \* msg_read = Str;
 \* msg_read_resp = {key: $key, ver : $version};
@@ -44,6 +61,8 @@ VARIABLES
   M_unlock,
   \* @type: Set({src : $rid, tid : $tid});
   M_unlock_resp,
+  \* The set of transactions committed before the given transaction started.
+  \* NOTE: only used to check linearisability
   \* @type: $tid -> Set($tid);
   Linearisability_rt
 
@@ -193,7 +212,7 @@ Next ==
 
 Spec == Init /\ [][Next]_Vars
 
-Serialisability(C) == 
+Linearisability(C) == 
   \/ Cardinality(C) < 2
   \/ \E R \in SUBSET (C \X C):
      \* Irreflexive
@@ -214,5 +233,5 @@ Serialisability(C) ==
 CommittedTIDs == {t \in TIDs: Coordinator_state[t] = "Commit"}
 AbortedTIDs == {t \in TIDs: Coordinator_state[t] = "Abort"}
 
-Safety_non_recovery == Serialisability(CommittedTIDs)
+Safety_non_recovery == Linearisability(CommittedTIDs)
 ====

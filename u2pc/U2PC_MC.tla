@@ -5,10 +5,18 @@ EXTENDS Apalache, U2PC, TLC
 \* @type: (a, b) => <<a, b>>;
 Pair(A,B) == << A,B >>
 
+\********************
+\* 1 shard, 1-2 transactions
+\* Checking simple commit, and conflict behaviours
+\********************
 T1 == SetAsFun({Pair("T1", {"X"})})
 T1_2 == SetAsFun({Pair("T1", {"X"}), Pair("T2", {"X"})})
 S1 == SetAsFun({Pair("X", {"X1", "X2"})})
 
+\********************
+\* 3 shards, 3 transactions, 
+\* Checking indirect dependency loops
+\********************
 T3 == SetAsFun({
   Pair("T1", {"X", "Y"}),
   Pair("T2", {"Y","Z"}), 
@@ -18,11 +26,16 @@ S3 == SetAsFun({
   Pair("Y", {"Y1", "Y2"}), 
   Pair("Z", {"Z1", "Z2"})})
 
-
+\********************
+\* Initial state for Apalache testing
+\********************
 CInit ==
   /\ Txns := T3
   /\ Shards := S3
 
+\********************
+\* Credit to github.com/tlaplus/examples 
+\********************
 TransitiveClosure(R) ==
   LET S == {r[1] : r \in R} \cup {r[2] : r \in R}
       RECURSIVE TCR(_)
@@ -48,14 +61,14 @@ RecoveryCommitted(S) ==
        \/ <<t, Replicas[r].version>> \in TransactionOrdering
   }
 
+\********************
+\* Every transaction committed during recovery preserves linearisability
+\********************
 Safety_recovery ==
   \A S \in SUBSET RIDs:
   \* Valid recovery
   (\A k \in DOMAIN Shards: \E r \in S: r \in Shards[k])
-  =>
-  IF Serialisability(CommittedTIDs \cup RecoveryCommitted(S))
-  THEN TRUE
-  ELSE Print([rec |-> RecoveryCommitted(S), com |-> CommittedTIDs], FALSE)
+  => Linearisability(CommittedTIDs \cup RecoveryCommitted(S))
 
 RecoveryAborted(S) ==
   {t \in TIDs:
@@ -64,6 +77,9 @@ RecoveryAborted(S) ==
     /\ \/ ~Replicas[r].locked
        \/ Replicas[r].locked /\ Replicas[r].logged /= t}
 
+\********************
+\* Every committed or aborted transaction results in the same recovery decision
+\********************
 Durability ==
   \A S \in SUBSET RIDs:
   \* Valid recovery
@@ -73,6 +89,11 @@ Durability ==
   /\ t \in CommittedTIDs => t \in RecoveryCommitted(S)
   /\ t \in AbortedTIDs => t \in RecoveryAborted(S)
 
+\********************
+\* Since recovery stops every replica it uses, an explicit recovery check is unnecessary
+\* since that is equivalent to just checking that every possible recovery using the current
+\* state preserves the invariants.
+\********************
 Invs ==
   /\ Safety_recovery
   /\ Durability
