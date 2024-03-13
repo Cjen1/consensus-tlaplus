@@ -7,6 +7,7 @@ Pair(A,B) == << A,B >>
 
 \********************
 \* 1 shard, 1-2 transactions
+\*
 \* Checking simple commit, and conflict behaviours
 \********************
 T1 == SetAsFun({Pair("T1", {"X"})})
@@ -14,7 +15,8 @@ T1_2 == SetAsFun({Pair("T1", {"X"}), Pair("T2", {"X"})})
 S1 == SetAsFun({Pair("X", {"X1", "X2"})})
 
 \********************
-\* 3 shards, 3 transactions, 
+\* 3 shards, 3 transactions
+\*
 \* Checking indirect dependency loops
 \********************
 T3 == SetAsFun({
@@ -34,7 +36,7 @@ CInit ==
   /\ Shards := S3
 
 \********************
-\* Credit to github.com/tlaplus/examples 
+\* Credit to https://github.com/tlaplus/examples 
 \********************
 TransitiveClosure(R) ==
   LET S == {r[1] : r \in R} \cup {r[2] : r \in R}
