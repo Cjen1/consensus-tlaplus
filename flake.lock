@@ -3,29 +3,14 @@
     "apalache-release": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-eig1ffEsi8upI9pu0OHuOM5XgD7OdZVy3xpCmqiGcqY=",
+        "lastModified": 1723211064,
+        "narHash": "sha256-DSRQsUQfGYoW/sy8Trjd3vM+7ZR8wf/QHtx98hBmNOA=",
         "type": "tarball",
-        "url": "https://github.com/informalsystems/apalache/releases/download/v0.41.3/apalache.zip"
+        "url": "https://github.com/informalsystems/apalache/releases/download/v0.44.11/apalache.zip"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/informalsystems/apalache/releases/download/v0.41.3/apalache.zip"
-      }
-    },
-    "apalache-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1692961280,
-        "narHash": "sha256-+yWHpf8s07Ao5CVXBk6ZM9NtUwioE23fLWqnT64cBrk=",
-        "owner": "informalsystems",
-        "repo": "apalache",
-        "rev": "6bb36acc1ad88fdeba21d45b67663b1e792e29c6",
-        "type": "github"
-      },
-      "original": {
-        "owner": "informalsystems",
-        "repo": "apalache",
-        "type": "github"
+        "url": "https://github.com/informalsystems/apalache/releases/download/v0.44.11/apalache.zip"
       }
     },
     "flake-utils": {
@@ -38,21 +23,6 @@
         "owner": "numtide",
         "repo": "flake-utils",
         "rev": "f9e7cf818399d17d347f847525c5a5a8032e4e44",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
-      }
-    },
-    "flake-utils_2": {
-      "locked": {
-        "lastModified": 1667395993,
-        "narHash": "sha256-nuEHfE/LcWyuSWnS8t12N1wc105Qtau+/OdUAjtQ0rA=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "5aed5285a952e0b949eb3ba02c12fa4fcfef535f",
         "type": "github"
       },
       "original": {
@@ -76,48 +46,11 @@
         "type": "github"
       }
     },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 1674990008,
-        "narHash": "sha256-4zOyp+hFW2Y7imxIpZqZGT8CEqKmDjwgfD6BzRUE0mQ=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "d2bbcbe6c626d339b25a4995711f07625b508214",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "apalache-release": "apalache-release",
-        "apalache-src": "apalache-src",
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs",
-        "sbt": "sbt"
-      }
-    },
-    "sbt": {
-      "inputs": {
-        "flake-utils": "flake-utils_2",
-        "nixpkgs": "nixpkgs_2"
-      },
-      "locked": {
-        "lastModified": 1675083208,
-        "narHash": "sha256-+sSFhSpV2jckr1qYlX/SaxQ6IdpagD6o4rru/3HAl0I=",
-        "owner": "zaninime",
-        "repo": "sbt-derivation",
-        "rev": "92d6d6d825e3f6ae5642d1cce8ff571c3368aaf7",
-        "type": "github"
-      },
-      "original": {
-        "owner": "zaninime",
-        "repo": "sbt-derivation",
-        "type": "github"
+        "nixpkgs": "nixpkgs"
       }
     },
     "systems": {
